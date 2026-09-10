@@ -1,26 +1,18 @@
 {
-  "name": "mcp-tada",
+  "name": "mcp-tada-workspace",
   "version": "0.0.0",
-  "description": "Zero-runtime, compile-time typed tool calls derived from a live server's tools/list",
-  "type": "module",
+  "private": true,
   "license": "MIT",
-  "bin": {
-    "mcp-tada": "./bin/mcp-tada.js"
+  "type": "module",
+  "packageManager": "pnpm@11.1.1",
+  "engines": {
+    "node": ">=22.18",
+    "pnpm": ">=11"
   },
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
-  },
-  "files": [
-    "dist",
-    "bin"
-  ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
     "check": "pnpm typecheck && pnpm test",
     "verify": "node ./scripts/verify.mjs",
     "format": "oxfmt --write .",
@@ -28,36 +20,13 @@
     "lint": "oxlint . --fix",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "pnpm build && changeset publish",
-    "prepublishOnly": "pnpm build"
-  },
-  "peerDependencies": {
-    "@modelcontextprotocol/sdk": ">=1.20.0",
-    "typescript": ">=5.4.0"
-  },
-  "peerDependenciesMeta": {
-    "typescript": {
-      "optional": true
-    }
+    "release": "pnpm -r build && changeset publish"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^1.0.1",
     "@changesets/cli": "^3.0.2",
-    "@modelcontextprotocol/sdk": "^1.30.0",
-    "@modelcontextprotocol/server-everything": "^2026.8.31",
-    "@types/node": "^26.5.0",
     "oxfmt": "^0.67.0",
     "oxlint": "^1.82.0",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.0"
-  },
-  "packageManager": "pnpm@11.1.1",
-  "engines": {
-    "node": ">=22.18",
-    "pnpm": ">=11"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/JoviDeCroock/mcp-tada"
+    "typescript": "^7.0.2"
   }
 }
