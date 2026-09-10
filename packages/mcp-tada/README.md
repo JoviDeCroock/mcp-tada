@@ -86,6 +86,21 @@ Aliases are validated at construction. The separator defaults to `__` and is con
 
 Draft-07 and 2020-12: `type` including arrays of types, `properties` with `required` and `additionalProperties`, `items` and `prefixItems`, `enum`, `const`, `anyOf`, `oneOf`, `allOf`, `nullable`, `$ref` into `$defs` or `definitions`, and `properties` without an explicit `type`. Unsupported keywords degrade to `unknown` rather than failing.
 
+## From a build script
+
+Everything the CLI does is also exported from `mcp-tada/cli`, so you can generate or check a snapshot without shelling out:
+
+```ts
+import { check, introspect } from "mcp-tada/cli";
+
+const target = { url: "https://mcp.deepwiki.com/mcp", timeoutMs: 10_000 };
+await introspect({ target, out: "src/deepwiki.introspection.d.ts" });
+const { report, text } = await check({ target, against: "src/deepwiki.introspection.d.ts" });
+if (!report.identical) throw new Error(text);
+```
+
+The main `mcp-tada` entry stays free of `node:fs` and transport imports; see the repository docs for the full `mcp-tada/cli` surface.
+
 ## Server side
 
 If you also write the server, [`mcp-tada-server`](https://www.npmjs.com/package/mcp-tada-server) declares tools once and gives the client the same types with no introspection step.

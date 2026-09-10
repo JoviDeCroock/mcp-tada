@@ -191,6 +191,37 @@ mcp-tada check
 
 ## Programmatic use
 
-`introspect()` and `check()` are also exported from `mcp-tada/dist/cli/introspect.js` and
-`mcp-tada/dist/cli/check.js` for tooling that wants to call them directly instead of shelling
-out, e.g. from a build script or test suite.
+The same code the CLI runs is exported from the `mcp-tada/cli` subpath, minus argv parsing, so a
+build script or test suite can drive it directly instead of shelling out. It is a separate entry
+from `mcp-tada` because it imports `node:fs` and the SDK transports, which the zero-runtime
+client entry must stay free of.
+
+```ts
+import { check, introspect } from "mcp-tada/cli";
+
+const target = { command: "node", args: ["server.js"], timeoutMs: 5000 };
+
+// Same as `mcp-tada introspect --command "node server.js" --out src/introspection.d.ts`.
+const { data, wrote } = await introspect({ target, out: "src/introspection.d.ts" });
+
+// Same as `mcp-tada check ... --against src/introspection.d.ts`; exit code is up to you.
+const { report, text } = await check({ target, against: "src/introspection.d.ts" });
+if (!report.identical) throw new Error(text);
+```
+
+`introspect(options)` connects, pages `tools/list`, and by default writes the snapshot
+(`write: false` skips the file and only returns `text` and `data`). It takes the same `out`,
+`name`, `json`, and `verbose` options as the flags. `check(options)` re-introspects and returns
+`{ report, text }`, where `report` has `added`, `removed`, `inputChanged`, `outputAppeared`,
+`outputDisappeared`, `outputChanged`, and `identical`.
+
+A `ServerTarget` is `{ command?, args?, env?, url?, headers?, timeoutMs? }`, the normalized form of
+the target flags. Unlike the CLI, no default timeout is applied unless you set `timeoutMs`
+(`DEFAULT_TIMEOUT_MS` is exported). `loadConfig(path)` reads an `mcp-tada.config.json` or an
+`mcpServers` file into `{ servers }`, each entry a `ServerTarget` plus `output`.
+
+The building blocks are exported too, for tooling that wants to compose its own flow:
+`connectClient` and `introspectTarget` (connect and list without writing anything),
+`buildIntrospectionData`, `collectWarnings`, `formatDts`, `formatJson`, and `writeIfChanged` on
+the introspect side; `diffIntrospection` and `formatReport` on the check side; and
+`parseSnapshotText`, `parseDtsSnapshot`, and `detectFormat` for reading a snapshot back.
