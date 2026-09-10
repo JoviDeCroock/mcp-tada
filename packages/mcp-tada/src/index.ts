@@ -4,6 +4,8 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { FromSchema } from "./schema.js";
 
 export type { FromSchema } from "./schema.js";
+export { combineMcpTada } from "./combine.js";
+export type { AnyTypedClient, CombinedClient, CombinedIntrospection } from "./combine.js";
 
 /**
  * Shape of a generated introspection snapshot: a name-keyed map of tools, each carrying

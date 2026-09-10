@@ -1,0 +1,128 @@
+import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import type {
+  ContentBlock,
+  ServerNotification,
+  ServerRequest,
+  ToolAnnotations,
+} from "@modelcontextprotocol/sdk/types.js";
+import type { FromSchema } from "mcp-tada";
+
+export type { FromSchema } from "mcp-tada";
+
+/** The `extra` argument every tool handler receives, matching the SDK's low-level shape. */
+export type ToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
+
+/**
+ * A handler may return the bare structured content (the common case), or, when it needs to
+ * customize the backward-compatible `content` blocks or flag an error, wrap it explicitly.
+ */
+export type StructuredToolReturn<Output> =
+  | Output
+  | {
+      structuredContent: Output;
+      content?: ContentBlock[];
+      isError?: boolean;
+    };
+
+/** Runtime type guard for the wrapped form of `StructuredToolReturn`. */
+export function isWrappedToolReturn<Output>(
+  value: StructuredToolReturn<Output>,
+): value is { structuredContent: Output; content?: ContentBlock[]; isError?: boolean } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    "structuredContent" in value
+  );
+}
+
+export type UnstructuredToolReturn = {
+  content: ContentBlock[];
+  isError?: boolean;
+  [key: string]: unknown;
+};
+
+type HandlerReturn<OutputSchema> = OutputSchema extends undefined
+  ? UnstructuredToolReturn
+  : StructuredToolReturn<FromSchema<OutputSchema>>;
+
+export type ToolHandler<InputSchema, OutputSchema> = (
+  args: FromSchema<InputSchema>,
+  extra: ToolExtra,
+) => HandlerReturn<OutputSchema> | Promise<HandlerReturn<OutputSchema>>;
+
+/** A single tool declared once: JSON Schema in, typed handler, JSON Schema out. */
+export type ToolDefinition<
+  Name extends string = string,
+  InputSchema = unknown,
+  OutputSchema = undefined,
+> = {
+  name: Name;
+  title?: string;
+  description?: string;
+  inputSchema: InputSchema;
+  outputSchema?: OutputSchema;
+  annotations?: ToolAnnotations;
+  handler: ToolHandler<InputSchema, OutputSchema>;
+};
+
+/**
+ * A `ToolDefinition` with its type parameters erased, for storing heterogeneous tools together
+ * (e.g. in the record `defineTools` and `registerTools` operate on). Defined independently of
+ * `ToolDefinition<string, any, any>` so the handler's return type stays a plain `any` rather than
+ * the `HandlerReturn<any>` union, which is awkward to consume generically.
+ */
+export type AnyToolDefinition = {
+  name: string;
+  title?: string;
+  description?: string;
+  inputSchema: unknown;
+  outputSchema?: unknown;
+  annotations?: ToolAnnotations;
+  handler: (args: any, extra: ToolExtra) => any;
+};
+
+/**
+ * Declares one tool. `inputSchema`/`outputSchema` should be written as plain JSON Schema object
+ * literals; TypeScript infers them as literal (`const`) types automatically from this signature,
+ * so `as const` is not required. The handler's `args` are typed from `inputSchema`, and, when
+ * `outputSchema` is present, its return is typed from `outputSchema`.
+ */
+export function defineTool<
+  const Name extends string,
+  const InputSchema,
+  const OutputSchema = undefined,
+>(
+  definition: ToolDefinition<Name, InputSchema, OutputSchema>,
+): ToolDefinition<Name, InputSchema, OutputSchema> {
+  return definition;
+}
+
+/** Declares several tools at once and collects them into a name-keyed record. */
+export function defineTools<const Defs extends readonly AnyToolDefinition[]>(
+  definitions: Defs,
+): { [D in Defs[number] as D["name"]]: D } {
+  const out: Record<string, AnyToolDefinition> = {};
+  for (const def of definitions) {
+    out[def.name] = def;
+  }
+  return out as { [D in Defs[number] as D["name"]]: D };
+}
+
+/**
+ * Produces the same `Introspection` shape `mcp-tada introspect` would generate for a live server,
+ * from a record of `ToolDefinition`s, e.g. `initMcpTada<IntrospectionOf<typeof tools>>()`.
+ */
+export type IntrospectionOf<Tools extends Record<string, AnyToolDefinition>> = {
+  tools: {
+    [K in keyof Tools & string]: Tools[K] extends ToolDefinition<
+      infer _Name,
+      infer InputSchema,
+      infer OutputSchema
+    >
+      ? OutputSchema extends undefined
+        ? { inputSchema: InputSchema }
+        : { inputSchema: InputSchema; outputSchema: OutputSchema }
+      : never;
+  };
+};

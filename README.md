@@ -98,6 +98,19 @@ Full reference in `docs/cli.md`.
 - `ToolNames<I>`, `ToolArgs<I, N>`, `ToolOutput<I, N>`, `ToolResult<I, N>` for naming the derived types in your own signatures.
 - `FromSchema<S, Root = S>` if you want the mapper on its own.
 - `Introspection` describes the snapshot shape: `{ tools: Record<string, { inputSchema: unknown; outputSchema?: unknown }> }`.
+- `combineMcpTada(clients, options?)` merges several typed clients into one, prefixing each tool name with its alias (default separator `"__"`) so same-named tools on different servers never collide.
+
+```ts
+const fs = initMcpTada<FsIntrospection>().typed(fsClient);
+const gh = initMcpTada<GhIntrospection>().typed(ghClient);
+
+const combined = combineMcpTada({ fs, gh });
+await combined.callTool("fs__read_file", { path: "README.md" });
+//                       ^ union of "fs__..." | "gh__..." tool names
+const tools = await combined.listTools(); // Tool[], ready for an LLM's tool list
+combined.servers.gh; // direct access to the underlying typed client
+combined.split("gh__search"); // -> { server: "gh", tool: "search" }
+```
 
 ## Keeping the snapshot honest
 
@@ -106,6 +119,22 @@ Tool lists can change. Servers declare `tools.listChanged`, and the 2026-07-28 s
 ## What to expect from real servers
 
 `docs/survey.md` covers 23 public servers and 230 tools. About 15 percent of tools declare `outputSchema`, and adoption is all-or-nothing per server. Expect typed inputs everywhere and typed outputs where the server author opted in.
+
+## Server side
+
+Writing the server too? `mcp-tada-server` declares tools once with a typed handler, registers them so the exact JSON Schemas hit the wire, and hands you the same introspection type for a same-codebase client with no network round trip.
+
+```sh
+pnpm add mcp-tada-server mcp-tada @modelcontextprotocol/sdk
+```
+
+```ts
+import { defineTools, registerTools, type IntrospectionOf } from "mcp-tada-server";
+
+const tools = defineTools([{ name: "sum", inputSchema, handler: async (args) => ({ total: args.a + args.b }) }]);
+registerTools(server, tools);
+const mcp = initMcpTada<IntrospectionOf<typeof tools>>().typed(client);
+```
 
 ## Development
 

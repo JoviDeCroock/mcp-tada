@@ -1,0 +1,46 @@
+{
+  "name": "mcp-tada-server",
+  "version": "0.0.0",
+  "description": "Declare MCP tools once, with input/output JSON Schema and typed handlers, and get the same introspection type mcp-tada introspect would generate",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm build"
+  },
+  "peerDependencies": {
+    "@modelcontextprotocol/sdk": ">=1.20.0",
+    "mcp-tada": "workspace:^",
+    "typescript": ">=5.4.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@types/node": "^26.5.0",
+    "mcp-tada": "workspace:^",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JoviDeCroock/mcp-tada"
+  }
+}

@@ -15,7 +15,7 @@ When the SDK negotiates 2026-07-28:
 
 ## Server-side package
 
-A sub-package that lets server authors declare tools once, emit `outputSchema`, and produce the same introspection type without a network round trip. See the discussion in AGENTS.md history for scope.
+Shipped as `packages/mcp-tada-server`: `defineTool`/`defineTools` declare tools once from plain JSON Schema with a typed handler, `registerTools` installs them on an `McpServer` via the low-level `tools/list`/`tools/call` handlers (the high-level `registerTool` only accepts Zod/Standard Schema input, not raw JSON Schema, in SDK 1.30), and `IntrospectionOf` produces the same introspection type `mcp-tada introspect` would generate, for a same-codebase client with no network round trip.
 
 ## Mapper coverage from the survey
 
@@ -23,4 +23,4 @@ Add a fixture per surveyed server shape and snapshot-test the emitted types. Kno
 
 ## Multi-server composition
 
-Namespacing when several introspections are combined and tool names collide.
+Shipped: `combineMcpTada` merges several typed clients into one, namespacing tool names by server alias (default separator `"__"`) so identically named tools on different servers no longer collide. See the `## API` section of the root README.md.
