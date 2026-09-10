@@ -17,6 +17,11 @@ export interface CheckReport {
   outputAppeared: string[];
   outputDisappeared: string[];
   outputChanged: string[];
+  /** Tools whose `annotations` differ in any way (appeared, disappeared, or changed). */
+  annotationsChanged: string[];
+  /** The subset of `annotationsChanged` where a tool lost a safety guarantee: `readOnlyHint`
+   * went from `true` to anything else, or `destructiveHint` went from `false` to anything else. */
+  safetyWeakened: string[];
   identical: boolean;
 }
 
@@ -52,6 +57,8 @@ export function diffIntrospection(
   const outputAppeared: string[] = [];
   const outputDisappeared: string[] = [];
   const outputChangedInPlace: string[] = [];
+  const annotationsChanged: string[] = [];
+  const safetyWeakened: string[] = [];
 
   for (const name of afterNames) {
     if (!beforeSet.has(name)) continue;
@@ -67,6 +74,16 @@ export function diffIntrospection(
     else if (bHasOut && aHasOut && !deepEqual(b.outputSchema, a.outputSchema)) {
       outputChangedInPlace.push(name);
     }
+
+    if (!deepEqual(b.annotations, a.annotations)) {
+      annotationsChanged.push(name);
+      if (
+        (b.annotations?.readOnlyHint === true && a.annotations?.readOnlyHint !== true) ||
+        (b.annotations?.destructiveHint === false && a.annotations?.destructiveHint !== false)
+      ) {
+        safetyWeakened.push(name);
+      }
+    }
   }
 
   const outputChanged = [...outputAppeared, ...outputDisappeared, ...outputChangedInPlace].sort();
@@ -74,7 +91,8 @@ export function diffIntrospection(
     added.length === 0 &&
     removed.length === 0 &&
     inputChanged.length === 0 &&
-    outputChanged.length === 0;
+    outputChanged.length === 0 &&
+    annotationsChanged.length === 0;
 
   return {
     added,
@@ -83,6 +101,8 @@ export function diffIntrospection(
     outputAppeared,
     outputDisappeared,
     outputChanged,
+    annotationsChanged,
+    safetyWeakened,
     identical,
   };
 }
@@ -125,6 +145,12 @@ export function formatReport(report: CheckReport, against: string): string {
   }
   if (report.outputChanged.length > 0) {
     lines.push(`  outputSchema changed: ${report.outputChanged.join(", ")}`);
+  }
+  if (report.annotationsChanged.length > 0) {
+    lines.push(`  annotations changed: ${report.annotationsChanged.join(", ")}`);
+  }
+  if (report.safetyWeakened.length > 0) {
+    lines.push(`  no longer read-only or non-destructive: ${report.safetyWeakened.join(", ")}`);
   }
   lines.push("");
   return lines.join("\n");

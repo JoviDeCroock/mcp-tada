@@ -10,6 +10,7 @@ Point it at a running MCP server once, and every `callTool` in your codebase get
 - arguments inferred from the tool's `inputSchema`
 - `structuredContent` typed from the tool's `outputSchema`
 - the tool's description on hover
+- the tool's annotations (`readOnlyHint`, `destructiveHint`, ...) at the type level, so you can hand an agent only the read-only tools
 
 ## Quick start
 
@@ -48,7 +49,7 @@ The same two pieces power "code mode" agents: the snapshot is a TypeScript decla
 
 ## How it works
 
-1. `mcp-tada introspect` connects to the server, pages through `tools/list`, and writes a `.d.ts` containing the tool map as a strict JSON type literal, with each tool's title and description as a JSDoc block. Nothing else is generated.
+1. `mcp-tada introspect` connects to the server, pages through `tools/list`, and writes a `.d.ts` containing the tool map as a strict JSON type literal, with each tool's title and description as a JSDoc block, and its `annotations` when the server declares them. Nothing else is generated.
 2. `initMcpTada<introspection>()` returns a thin wrapper around the SDK `Client`. At runtime it forwards to `client.callTool`. Everything else is type-level.
 3. A small purpose-built JSON Schema to TypeScript mapper turns each schema into a type on demand. It accepts draft-07 and 2020-12 vocabularies: objects with `required` and `additionalProperties`, arrays and `prefixItems` tuples, `enum`, `const`, `anyOf`, `oneOf`, `allOf`, `type` arrays, `nullable`, and `$ref` into `$defs` or `definitions`.
 
@@ -73,7 +74,7 @@ Flags: `--stdio` or `--command` plus repeatable `--arg` and `--env KEY=VAL`; `--
 
 ### `mcp-tada check`
 
-Diffs a live server against a snapshot and exits 1 on any drift: added or removed tools, changed input schemas, changed or newly present output schemas. Run it in CI. Accepts the same target flags as `introspect`, including `--timeout <ms>`.
+Diffs a live server against a snapshot and exits 1 on any drift: added or removed tools, changed input schemas, changed or newly present output schemas, and changed annotations. A tool that stopped being read-only or non-destructive is called out on its own line, since code written against the old snapshot may be trusting that hint. Run it in CI. Accepts the same target flags as `introspect`, including `--timeout <ms>`.
 
 ```sh
 mcp-tada check --stdio "npx -y @modelcontextprotocol/server-filesystem ." --against src/fs.introspection.d.ts
@@ -112,7 +113,16 @@ Full reference in `docs/cli.md`.
 - `listTools()` on both the typed client and the combined client pages through `nextCursor` and returns every tool, not just the first page. The raw single-page SDK call is still reachable as `client.listTools(...)` on the typed client's underlying `client`.
 - `ToolNames<I>`, `ToolArgs<I, N>`, `ToolOutput<I, N>`, `ToolResult<I, N>` for naming the derived types in your own signatures. `ToolOutput<I, N>` is the success-case `structuredContent` type.
 - `FromSchema<S, Root = S>` maps an `inputSchema`-shaped JSON Schema to its TS type; objects are closed to their declared `properties` unless `additionalProperties` says otherwise. `FromOutputSchema<S, Root = S>` maps an `outputSchema` the same way, except objects with no `additionalProperties` stay open (`& { [k: string]: unknown }`), since a server's structured output may legitimately include fields it didn't declare.
-- `Introspection` describes the snapshot shape: `{ tools: Record<string, { inputSchema: unknown; outputSchema?: unknown }> }`.
+- `Introspection` describes the snapshot shape: `{ tools: Record<string, { inputSchema: unknown; outputSchema?: unknown; annotations?: ToolAnnotations }> }`. Snapshots generated before annotations were recorded still satisfy it.
+- `ReadOnlyToolNames<I>` is the union of tools annotated `readOnlyHint: true`, and `NonDestructiveToolNames<I>` adds those annotated `destructiveHint: false`. Unannotated tools count as writable and destructive, matching the spec's defaults. `ToolAnnotationsOf<I, N>` is one tool's recorded annotations, and `PickTools<I, Names>` narrows a snapshot to a set of tools while keeping it an `Introspection`.
+- `readOnly(mcp)` is a view of a typed client that only knows the read-only tools: `callTool` and `tools` narrow to `ReadOnlyToolNames<I>`, and `listTools()` filters the live list on the same annotation, so it can go straight into an LLM's tool list. It forwards to the same underlying client, so it is a compile-time restriction plus a runtime filter on the list, not a sandbox.
+
+```ts
+const safe = readOnly(fs);
+await safe.callTool("read_file", { path: "README.md" }); // ok
+await safe.callTool("write_file", { path: "x", content: "" }); // compile error
+const tools = await safe.listTools(); // only tools with readOnlyHint: true
+```
 - `combineMcpTada(clients, options?)` merges several typed clients into one, prefixing each tool name with its alias (default separator `"__"`) so same-named tools on different servers never collide. Throws at construction if an alias is empty or contains the separator, or if the separator is empty. Its `tools` nests each server's methods under its alias, so `combined.tools.gh.search(...)` needs no prefixed string.
 
 ```ts
@@ -130,7 +140,7 @@ combined.split("gh__search"); // -> { server: "gh", tool: "search" }
 
 ## Keeping the snapshot honest
 
-Tool lists can change. Servers declare `tools.listChanged`, and the 2026-07-28 spec revision adds `ttlMs` and `cacheScope` to list results, which `introspect` records in the file header when present. A tool that exists in the snapshot but not on the server fails at runtime the same way a removed GraphQL field would. The snapshot is your contract, and `mcp-tada check` keeps it current.
+Tool lists can change, and so can what a tool promises about itself. Servers declare `tools.listChanged`, and the 2026-07-28 spec revision adds `ttlMs` and `cacheScope` to list results, which `introspect` records in the file header when present. A tool that exists in the snapshot but not on the server fails at runtime the same way a removed GraphQL field would. The snapshot is your contract, and `mcp-tada check` keeps it current.
 
 ## What to expect from real servers
 

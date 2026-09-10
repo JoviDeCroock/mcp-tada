@@ -1,6 +1,6 @@
 import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import type { Introspection, ToolNames, TypedClient } from "./index.js";
+import type { Introspection, ToolEntry, ToolNames, TypedClient } from "./index.js";
 
 /** Any client produced by `initMcpTada<I>().typed(client)`, with its introspection erased. */
 export type AnyTypedClient = TypedClient<any>;
@@ -39,7 +39,7 @@ export type CombinedIntrospection<
     UnionToIntersection<
       { [K in keyof Map & string]: PrefixedTools<K, Map[K], Sep> }[keyof Map & string]
     >,
-    Record<string, { inputSchema: unknown; outputSchema?: unknown }>
+    Record<string, ToolEntry>
   >;
 };
 

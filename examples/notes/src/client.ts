@@ -2,7 +2,7 @@
 // notes.introspection.d.ts, which `pnpm introspect` regenerates from the running server.
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { initMcpTada } from "mcp-tada";
+import { initMcpTada, readOnly } from "mcp-tada";
 import type { IntrospectionOf } from "mcp-tada-server";
 import type { introspection } from "./notes.introspection.js";
 import type { tools } from "./tools.js";
@@ -41,6 +41,15 @@ if (!all.isError)
     "stored notes:",
     all.structuredContent.notes.map((n) => n.title),
   );
+
+// `readOnly` keeps only the tools annotated `readOnlyHint: true`: get_note and list_notes here.
+// Its listTools() is filtered the same way, so it can go straight into an LLM's tool list.
+const safe = readOnly(notes);
+console.log(
+  "read-only tools:",
+  (await safe.listTools()).map((t) => t.name),
+);
+// await safe.callTool("clear_notes"); // rejected: clear_notes is not read-only
 
 const cleared = await notes.callTool("clear_notes");
 console.log("clear_notes:", cleared.content[0]?.type === "text" && cleared.content[0].text);

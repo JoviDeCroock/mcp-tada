@@ -39,6 +39,7 @@ export const tools = defineTools([
   defineTool({
     name: "get_note",
     description: "Fetch one note by id. Returns an error result when the id is unknown.",
+    annotations: { readOnlyHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: { id: { type: "integer" } },
@@ -54,6 +55,7 @@ export const tools = defineTools([
   defineTool({
     name: "list_notes",
     description: "List every stored note.",
+    annotations: { readOnlyHint: true, idempotentHint: true },
     inputSchema: { type: "object", properties: {} },
     outputSchema: {
       type: "object",
@@ -65,6 +67,7 @@ export const tools = defineTools([
   defineTool({
     name: "clear_notes",
     description: "Delete every note. Returns plain text, no structured output.",
+    annotations: { readOnlyHint: false, destructiveHint: true },
     inputSchema: { type: "object", properties: {} },
     handler: () => {
       const count = notes.size;

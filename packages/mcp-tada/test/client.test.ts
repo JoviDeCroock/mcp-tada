@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { initMcpTada } from "../src/index.js";
+import { initMcpTada, readOnly } from "../src/index.js";
 import type { introspection } from "./fixtures/everything.introspection.d.ts";
 
 const serverPath = fileURLToPath(
@@ -117,6 +117,36 @@ describe("tools namespace (stub client)", () => {
     expect(await mcp.tools).toBe(mcp.tools);
     expect(Object.keys(mcp.tools)).toEqual([]);
     expect(calls).toEqual([]);
+  });
+});
+
+describe("readOnly view (stub client)", () => {
+  const tools = [
+    { name: "a", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } },
+    { name: "b", inputSchema: { type: "object" }, annotations: { readOnlyHint: false } },
+    { name: "c", inputSchema: { type: "object" } },
+  ];
+  const calls: unknown[] = [];
+  const stub = {
+    listTools: async () => ({ tools }),
+    callTool: async (params: unknown) => {
+      calls.push(params);
+      return { content: [] };
+    },
+  };
+  const mcp = initMcpTada<introspection>().typed(stub as never);
+  const safe = readOnly(mcp);
+
+  it("filters listTools to tools annotated readOnlyHint: true", async () => {
+    expect((await safe.listTools()).map((t) => t.name)).toEqual(["a"]);
+    // The underlying client is untouched.
+    expect((await mcp.listTools()).map((t) => t.name)).toEqual(["a", "b", "c"]);
+  });
+
+  it("forwards calls to the same client", async () => {
+    await safe.callTool("echo", { message: "hi" });
+    expect(calls).toEqual([{ name: "echo", arguments: { message: "hi" } }]);
+    expect(safe.client).toBe(mcp.client);
   });
 });
 

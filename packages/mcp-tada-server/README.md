@@ -44,6 +44,22 @@ const result = await mcp.callTool("sum", { a: 1, b: 2 });
 result.structuredContent.total; // typed as number
 ```
 
+## Annotations
+
+`annotations` on a definition are emitted on `tools/list` verbatim and carried into
+`IntrospectionOf` with their literal values, so `ReadOnlyToolNames` and `readOnly` from `mcp-tada`
+work on a same-codebase client exactly as they do on a CLI snapshot:
+
+```ts
+const tools = defineTools([
+  defineTool({ name: "peek", inputSchema, annotations: { readOnlyHint: true }, handler }),
+  defineTool({ name: "wipe", inputSchema, annotations: { destructiveHint: true }, handler }),
+]);
+const safe = readOnly(initMcpTada<IntrospectionOf<typeof tools>>().typed(client));
+await safe.callTool("peek"); // ok
+await safe.callTool("wipe"); // compile error
+```
+
 ## Why the low-level handlers
 
 The SDK's high-level `McpServer.registerTool` only accepts Zod (or Standard Schema) input, not raw

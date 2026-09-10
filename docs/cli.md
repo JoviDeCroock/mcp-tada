@@ -30,8 +30,11 @@ export type introspection = {
 ```
 
 Tool keys are sorted alphabetically for stable diffs. `outputSchema` is included only when the
-server's tool definition has one. Each tool key gets a JSDoc comment above it built from the
-tool's `title` and `description`, so editors show it on hover.
+server's tool definition has one, and `annotations` (`readOnlyHint`, `destructiveHint`,
+`idempotentHint`, `openWorldHint`, and any other keys the server sends) only when the server
+declares them, with the known keys emitted in that order so the file does not churn when a server
+reorders them. Each tool key gets a JSDoc comment above it built from the tool's `title` and
+`description`, so editors show it on hover.
 
 The header comment records the server's name and version (`client.getServerVersion()`), the
 negotiated protocol version (when the transport exposes it), the `tools.listChanged`
@@ -84,7 +87,7 @@ every selected server.
   directory, or `introspection.json` with `--json`).
 - `--name <TypeName>` also exports `export type <TypeName> = introspection;`, useful when you
   introspect more than one server into the same project.
-- `--json` dumps the raw `{ tools: { "<name>": { inputSchema, outputSchema? } } }` data as JSON
+- `--json` dumps the raw `{ tools: { "<name>": { inputSchema, outputSchema?, annotations? } } }` data as JSON
   instead of a `.d.ts`. This is the same shape `check` reads back, so it is handy for other
   tooling that wants the data without parsing TypeScript.
 - `--verbose` expands the warning summaries below into per-tool lists.
@@ -123,6 +126,9 @@ The report lists, when present:
 - removed tools (in the snapshot but no longer live)
 - tools whose `inputSchema` changed
 - tools whose `outputSchema` appeared, disappeared, or changed shape
+- tools whose `annotations` appeared, disappeared, or changed, and, on a separate line, the
+  subset that lost a safety guarantee: `readOnlyHint` was `true` and no longer is, or
+  `destructiveHint` was `false` and no longer is
 
 Exit code is `1` if there is any difference, `0` if the live server matches the snapshot
 exactly. This makes `mcp-tada check --against introspection.d.ts` a good CI step to catch a
@@ -213,7 +219,7 @@ if (!report.identical) throw new Error(text);
 (`write: false` skips the file and only returns `text` and `data`). It takes the same `out`,
 `name`, `json`, and `verbose` options as the flags. `check(options)` re-introspects and returns
 `{ report, text }`, where `report` has `added`, `removed`, `inputChanged`, `outputAppeared`,
-`outputDisappeared`, `outputChanged`, and `identical`.
+`outputDisappeared`, `outputChanged`, `annotationsChanged`, `safetyWeakened`, and `identical`.
 
 A `ServerTarget` is `{ command?, args?, env?, url?, headers?, timeoutMs? }`, the normalized form of
 the target flags. Unlike the CLI, no default timeout is applied unless you set `timeoutMs`
@@ -222,6 +228,6 @@ the target flags. Unlike the CLI, no default timeout is applied unless you set `
 
 The building blocks are exported too, for tooling that wants to compose its own flow:
 `connectClient` and `introspectTarget` (connect and list without writing anything),
-`buildIntrospectionData`, `collectWarnings`, `formatDts`, `formatJson`, and `writeIfChanged` on
-the introspect side; `diffIntrospection` and `formatReport` on the check side; and
+`buildIntrospectionData`, `toToolSnapshot`, `collectWarnings`, `formatDts`, `formatJson`, and
+`writeIfChanged` on the introspect side; `diffIntrospection` and `formatReport` on the check side; and
 `parseSnapshotText`, `parseDtsSnapshot`, and `detectFormat` for reading a snapshot back.

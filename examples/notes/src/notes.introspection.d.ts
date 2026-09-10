@@ -54,6 +54,10 @@ export type introspection = {
       "inputSchema": {
         "type": "object",
         "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true
       }
     },
     /**
@@ -89,6 +93,10 @@ export type introspection = {
           "title",
           "body"
         ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
       }
     },
     /**
@@ -128,6 +136,10 @@ export type introspection = {
         "required": [
           "notes"
         ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
       }
     }
   }
