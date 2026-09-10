@@ -56,7 +56,8 @@ Each prompt records its argument names and `required` flags in the server's orde
 block rather than the data, so a reworded description does not read as drift in `check`.
 
 The header comment records the server's name and version (`client.getServerVersion()`), the
-negotiated protocol version (when the transport exposes it), the `tools.listChanged`
+negotiated protocol version (only the streamable HTTP transport exposes it; the line is omitted
+for stdio and SSE servers), the `tools.listChanged`
 capability, `prompts.listChanged` when the server offers prompts, and, when present in the raw `tools/list` result, `ttlMs` / `cacheScope`. Those last
 two are read defensively as unknown fields: they are part of a 2026-07-28 MCP spec RC for
 result caching hints and are not yet in `@modelcontextprotocol/sdk`'s `ListToolsResult` type as
@@ -94,6 +95,9 @@ mcp-tada introspect --url https://example.com/mcp --header "Authorization: Beare
 mcp-tada introspect --stdio "node server.js" --timeout 5000
 ```
 
+Any other connection failure (unreachable host, refused connection, a command that fails to spawn)
+is reported as `connecting to "<target>" failed: <reason>`, with the underlying cause appended.
+
 `--timeout <ms>` applies to connecting and to each `tools/list` and `prompts/list` request, and defaults to
 `30000`. On timeout, the transport is closed and the command exits 1 with a message naming the
 target (the `--url` or `--command`/`--stdio` value, or the config alias). A server's `timeoutMs`
@@ -107,7 +111,8 @@ every selected server.
 - `--name <TypeName>` also exports `export type <TypeName> = introspection;`, useful when you
   introspect more than one server into the same project.
 - `--json` dumps the raw `{ tools: { "<name>": { inputSchema, outputSchema?, annotations? } }, prompts?: { "<name>": { arguments } } }` data as JSON
-  instead of a `.d.ts`. This is the same shape `check` reads back, so it is handy for other
+  instead of a `.d.ts`. Pairing it with a `.d.ts` output path is rejected, as is a `.d.ts`
+  snapshot aimed at a `.json` path, since either would leave a file its extension misdescribes. This is the same shape `check` reads back, so it is handy for other
   tooling that wants the data without parsing TypeScript.
 - `--verbose` expands the warning summaries below into per-tool lists.
 - If the target's content is byte-identical to what's already on disk, mcp-tada does not
@@ -219,7 +224,7 @@ mcp-tada check
 
 ## Programmatic use
 
-The same code the CLI runs is exported from the `mcp-tada/cli` subpath, minus argv parsing, so a
+Since mcp-tada 0.2.0, the same code the CLI runs is exported from the `mcp-tada/cli` subpath, minus argv parsing, so a
 build script or test suite can drive it directly instead of shelling out. It is a separate entry
 from `mcp-tada` because it imports `node:fs` and the SDK transports, which the zero-runtime
 client entry must stay free of.

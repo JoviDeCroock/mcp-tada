@@ -168,13 +168,19 @@ async function closeStdioHard(stdio: StdioClientTransport): Promise<void> {
   }
 }
 
-/** Wraps a connect/list failure so a timeout reads as a clear, target-naming error. */
+/** Wraps a connect/list failure so it names the target: a timeout reads as such, and any other
+ * failure (a bare `fetch failed`, a spawn error) carries the target and the underlying cause. */
 function wrapConnectError(err: unknown, target: ServerTarget): unknown {
   if (isTimeoutError(err)) {
     const ms = target.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     return new Error(`mcp-tada: connecting to "${describeTarget(target)}" timed out after ${ms}ms`);
   }
-  return err;
+  const message = err instanceof Error ? err.message : String(err);
+  const cause = err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined;
+  const detail = cause && !message.includes(cause) ? `${message} (${cause})` : message;
+  return new Error(`mcp-tada: connecting to "${describeTarget(target)}" failed: ${detail}`, {
+    cause: err,
+  });
 }
 
 /** Build and connect an SDK Client for the given target, stdio or HTTP (with SSE fallback).

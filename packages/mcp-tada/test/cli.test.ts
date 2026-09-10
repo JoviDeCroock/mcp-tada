@@ -87,6 +87,20 @@ describe("introspect", () => {
     expect(parsed.prompts["args-prompt"].arguments[0]).toEqual({ name: "city", required: true });
   }, 30_000);
 
+  it("refuses to write --json output to a .d.ts path, and a .d.ts snapshot to a .json path", async () => {
+    await expect(
+      introspect({ target, out: tmpFile("introspection.d.ts"), json: true, write: false }),
+    ).rejects.toThrow(/--json writes raw JSON/);
+    await expect(
+      introspect({ target, out: tmpFile("introspection.json"), write: false }),
+    ).rejects.toThrow(/pass --json/);
+  });
+
+  it("omits the protocolVersion header line when the transport does not expose it", async () => {
+    const result = await introspect({ target, write: false });
+    expect(result.text).not.toContain("protocolVersion");
+  }, 30_000);
+
   it("emits a JSDoc block with title/description above each tool", async () => {
     const out = tmpFile("introspection.d.ts");
     const result = await introspect({ target, out });
@@ -289,6 +303,16 @@ describe("--timeout", () => {
   it("introspect fails fast with a message naming the target", async () => {
     await expect(introspect({ target: silentTarget, write: false })).rejects.toThrow(/timed out/);
   }, 10_000);
+
+  it("names the target and the cause when a URL cannot be reached", async () => {
+    const target: ServerTarget = {
+      url: "https://this-domain-does-not-exist-mcp-tada.invalid/mcp",
+      timeoutMs: 10_000,
+    };
+    await expect(introspect({ target, write: false })).rejects.toThrow(
+      /connecting to "https:\/\/this-domain-does-not-exist-mcp-tada\.invalid\/mcp" failed: fetch failed \(/,
+    );
+  }, 20_000);
 
   it("check fails fast with a message naming the target", async () => {
     const out = tmpFile("introspection.json");
