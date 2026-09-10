@@ -124,8 +124,7 @@ for (const packageJsonPath of packageJsonPaths()) {
   ];
 
   console.log(`Staging ${pkg.name}@${pkg.version} with dist-tag ${tag}...`);
-  // `stage` is an npm command (11.15+), not a pnpm one, so call npm directly.
-  const result = spawnSync("npm", args, {
+  const result = spawnSync("pnpm", args, {
     cwd: root,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
