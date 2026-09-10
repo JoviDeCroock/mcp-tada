@@ -7,7 +7,7 @@ export type { FromSchema } from "./schema.js";
 
 /**
  * Shape of a generated introspection snapshot: a name-keyed map of tools, each carrying
- * its JSON Schema input (and optionally output) schema. Matches proto/introspection.d.ts.
+ * its JSON Schema input (and optionally output) schema. Matches the output of `mcp-tada introspect`.
  */
 export type Introspection = {
   tools: Record<string, { inputSchema: unknown; outputSchema?: unknown }>;

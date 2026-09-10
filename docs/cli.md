@@ -1,6 +1,6 @@
 # mcp-tada CLI
 
-`mcp-tada` is gql.tada for MCP: a zero-runtime typed client for Model Context Protocol tool
+A zero-runtime typed client for Model Context Protocol tool
 calls, derived from a generated `introspection.d.ts` snapshot of a server's `tools/list`. This
 document covers the CLI: `introspect` (generate the snapshot) and `check` (diff a live server
 against a snapshot), plus `--help` and `--version`.

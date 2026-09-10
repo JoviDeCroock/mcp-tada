@@ -1,7 +1,7 @@
 {
   "name": "mcp-tada",
   "version": "0.0.0",
-  "description": "gql.tada for MCP: zero-runtime, compile-time typed tool calls derived from a live server's tools/list",
+  "description": "Zero-runtime, compile-time typed tool calls derived from a live server's tools/list",
   "type": "module",
   "license": "MIT",
   "bin": {

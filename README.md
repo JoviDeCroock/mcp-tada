@@ -1,21 +1,19 @@
 # mcp-tada
 
-Compile-time typed [Model Context Protocol](https://modelcontextprotocol.io) tool calls for TypeScript. Zero runtime, no codegen of client code, no schema library at type level.
+Compile-time typed [Model Context Protocol](https://modelcontextprotocol.io) tool calls for TypeScript. Zero runtime, no generated client code, no schema library at the type level.
 
 Point it at a running MCP server once, and every `callTool` in your codebase gets:
 
 - tool names as a union, so a typo is a compile error
 - arguments inferred from the tool's `inputSchema`
 - `structuredContent` typed from the tool's `outputSchema`
-- hover on any call to see the tool's description
-
-The approach is the one [gql.tada](https://gql-tada.0no.co) uses for GraphQL: snapshot the live schema into a `.d.ts`, then do all the work in the type system.
+- the tool's description on hover
 
 ## Quick start
 
 ```sh
-npm i mcp-tada @modelcontextprotocol/sdk
-npx mcp-tada introspect --stdio "npx -y @modelcontextprotocol/server-filesystem ." --out src/fs.introspection.d.ts
+pnpm add mcp-tada @modelcontextprotocol/sdk
+pnpm mcp-tada introspect --stdio "npx -y @modelcontextprotocol/server-filesystem ." --out src/fs.introspection.d.ts
 ```
 
 ```ts
@@ -31,26 +29,92 @@ const fs = initMcpTada<introspection>().typed(client);
 const result = await fs.callTool("read_file", { path: "README.md" });
 //                                ^ union of tool names   ^ inferred from inputSchema
 result.structuredContent;
-//     ^ typed from outputSchema when the server declares one
+//     ^ typed from outputSchema when the server declares one, otherwise undefined
 ```
+
+Tools whose input schema has no required properties can be called without an arguments object.
 
 ## How it works
 
-1. `mcp-tada introspect` connects to the server, pages through `tools/list`, and writes a `.d.ts` containing the tool map as a type literal. Nothing else is generated.
+1. `mcp-tada introspect` connects to the server, pages through `tools/list`, and writes a `.d.ts` containing the tool map as a strict JSON type literal, with each tool's title and description as a JSDoc block. Nothing else is generated.
 2. `initMcpTada<introspection>()` returns a thin wrapper around the SDK `Client`. At runtime it forwards to `client.callTool`. Everything else is type-level.
-3. A small purpose-built JSON Schema to TypeScript mapper turns each schema into a type on demand. It handles draft-07 and 2020-12 vocabularies: objects, required, additionalProperties, arrays, tuples, enum, const, anyOf, oneOf, allOf, type arrays, nullable, and `$ref` into `$defs` or `definitions`.
+3. A small purpose-built JSON Schema to TypeScript mapper turns each schema into a type on demand. It accepts draft-07 and 2020-12 vocabularies: objects with `required` and `additionalProperties`, arrays and `prefixItems` tuples, `enum`, `const`, `anyOf`, `oneOf`, `allOf`, `type` arrays, `nullable`, and `$ref` into `$defs` or `definitions`.
+
+Off-the-shelf type-level mappers were measured at over 12 million type instantiations on real server schemas. This one checks the same snapshot in about 25 thousand, so editor feedback stays instant.
+
+## CLI
+
+### `mcp-tada introspect`
+
+```sh
+# stdio server
+mcp-tada introspect --stdio "npx -y @modelcontextprotocol/server-filesystem ." --out src/fs.introspection.d.ts
+
+# Streamable HTTP server, with headers (falls back to the legacy SSE transport on a 4xx)
+mcp-tada introspect --url https://example.com/mcp --header "Authorization: Bearer x" --out src/remote.introspection.d.ts
+
+# raw JSON instead of a .d.ts
+mcp-tada introspect --stdio "node server.js" --json --out tools.json
+```
+
+Flags: `--stdio` or `--command` plus repeatable `--arg` and `--env KEY=VAL`; `--url` plus repeatable `--header`; `--out`, `--name <TypeName>` for an extra exported alias, `--json`, `--verbose`. The file is left untouched when the output is byte-identical. Warnings are printed for tools without `outputSchema` and for schemas that `$ref` an external URI.
+
+### `mcp-tada check`
+
+Diffs a live server against a snapshot and exits 1 on any drift: added or removed tools, changed input schemas, changed or newly present output schemas. Run it in CI.
+
+```sh
+mcp-tada check --stdio "npx -y @modelcontextprotocol/server-filesystem ." --against src/fs.introspection.d.ts
+```
+
+### Config file
+
+With no target flags, both commands read `mcp-tada.config.json` from the current directory, or the path given with `--config`, and act on every configured server. Pass a server alias as a positional argument to act on just one.
+
+```json
+{
+  "servers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "output": "src/filesystem.introspection.d.ts"
+    },
+    "remote": {
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer x" },
+      "output": "src/remote.introspection.d.ts"
+    }
+  }
+}
+```
+
+A Claude Desktop or Cursor style file with an `mcpServers` block is accepted too.
+
+Full reference in `docs/cli.md`.
+
+## API
+
+- `initMcpTada<I>()` returns `{ typed(client) }`. The typed client exposes `callTool(name, args?, options?)`, `listTools()`, and the underlying `client`.
+- `ToolNames<I>`, `ToolArgs<I, N>`, `ToolOutput<I, N>`, `ToolResult<I, N>` for naming the derived types in your own signatures.
+- `FromSchema<S, Root = S>` if you want the mapper on its own.
+- `Introspection` describes the snapshot shape: `{ tools: Record<string, { inputSchema: unknown; outputSchema?: unknown }> }`.
 
 ## Keeping the snapshot honest
 
-Tool lists can change. Servers declare `tools.listChanged`, and the 2026-07-28 spec adds `ttlMs` and `cacheScope` to list results. Run `mcp-tada check` in CI to diff the live server against your snapshot and fail on drift:
+Tool lists can change. Servers declare `tools.listChanged`, and the 2026-07-28 spec revision adds `ttlMs` and `cacheScope` to list results, which `introspect` records in the file header when present. A tool that exists in the snapshot but not on the server fails at runtime the same way a removed GraphQL field would. The snapshot is your contract, and `mcp-tada check` keeps it current.
+
+## What to expect from real servers
+
+`docs/survey.md` covers 23 public servers and 230 tools. About 15 percent of tools declare `outputSchema`, and adoption is all-or-nothing per server. Expect typed inputs everywhere and typed outputs where the server author opted in.
+
+## Development
 
 ```sh
-npx mcp-tada check --stdio "npx -y @modelcontextprotocol/server-filesystem ." --against src/fs.introspection.d.ts
+pnpm install
+pnpm run verify   # format, lint, build, typecheck, test
 ```
 
-A tool that exists in the snapshot but not on the server fails at runtime the same way a removed GraphQL field would. The snapshot is your contract.
-
-See `docs/cli.md` for the config file format and HTTP transport flags, and `docs/survey.md` for a survey of 23 public servers: about 15 percent of tools declare `outputSchema` today, so expect typed inputs everywhere and typed outputs where the server author opted in.
+See `AGENTS.md` for contributor conventions and `.changeset/` for release notes.
 
 ## Status
 

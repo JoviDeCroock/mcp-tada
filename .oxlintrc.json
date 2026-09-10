@@ -8,5 +8,5 @@
   "env": {
     "builtin": true
   },
-  "ignorePatterns": ["dist/**", "proto/**", "**/*.introspection.d.ts"]
+  "ignorePatterns": ["dist/**", "**/*.introspection.d.ts"]
 }
