@@ -20,6 +20,7 @@ export {
   formatJson,
   introspect,
   introspectTarget,
+  toToolSnapshot,
   writeIfChanged,
   type FormatDtsOptions,
   type IntrospectMeta,
@@ -41,5 +42,6 @@ export {
   parseSnapshotText,
   type IntrospectionData,
   type SnapshotFormat,
+  type ToolAnnotationsSnapshot,
   type ToolSnapshot,
 } from "./snapshot.js";

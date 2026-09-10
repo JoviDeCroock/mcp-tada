@@ -10,7 +10,7 @@ import {
   withTimeoutWrapping,
   type ServerTarget,
 } from "./connect.js";
-import type { IntrospectionData, ToolSnapshot } from "./snapshot.js";
+import type { IntrospectionData, ToolAnnotationsSnapshot, ToolSnapshot } from "./snapshot.js";
 
 export interface IntrospectMeta {
   serverName?: string;
@@ -74,7 +74,37 @@ export async function introspectTarget(
   }
 }
 
-/** Build the sorted, name-keyed `{ inputSchema, outputSchema? }` map from a raw tool list. */
+/** The snapshot entry for one tool: `inputSchema`, plus `outputSchema` and `annotations` when
+ * the server sent them. Annotation keys are emitted in the spec's order so the file is stable
+ * regardless of how a server happens to order them. */
+export function toToolSnapshot(tool: Tool): ToolSnapshot {
+  const entry: ToolSnapshot = { inputSchema: tool.inputSchema };
+  if (tool.outputSchema !== undefined) entry.outputSchema = tool.outputSchema;
+  if (tool.annotations !== undefined) entry.annotations = orderAnnotations(tool.annotations);
+  return entry;
+}
+
+const annotationOrder = [
+  "title",
+  "readOnlyHint",
+  "destructiveHint",
+  "idempotentHint",
+  "openWorldHint",
+] as const;
+
+function orderAnnotations(annotations: Record<string, unknown>): ToolAnnotationsSnapshot {
+  const out: Record<string, unknown> = {};
+  for (const key of annotationOrder) {
+    if (annotations[key] !== undefined) out[key] = annotations[key];
+  }
+  for (const key of Object.keys(annotations).sort()) {
+    if (!(key in out) && annotations[key] !== undefined) out[key] = annotations[key];
+  }
+  return out as ToolAnnotationsSnapshot;
+}
+
+/** Build the sorted, name-keyed `{ inputSchema, outputSchema?, annotations? }` map from a raw
+ * tool list. */
 export function buildIntrospectionData(tools: Tool[]): IntrospectionData {
   const byName = new Map<string, Tool>();
   for (const tool of tools) byName.set(tool.name, tool);
@@ -83,9 +113,7 @@ export function buildIntrospectionData(tools: Tool[]): IntrospectionData {
   for (const name of names) {
     const tool = byName.get(name);
     if (!tool) continue;
-    const entry: ToolSnapshot = { inputSchema: tool.inputSchema };
-    if (tool.outputSchema !== undefined) entry.outputSchema = tool.outputSchema;
-    map[name] = entry;
+    map[name] = toToolSnapshot(tool);
   }
   return { tools: map };
 }
@@ -160,8 +188,7 @@ export function formatDts(
   const toolIndent = "    "; // tool keys sit 4 spaces in (introspection = { tools: { <here> } })
   const blocks = names.map((name) => {
     const tool = byName.get(name);
-    const entry: ToolSnapshot = { inputSchema: tool?.inputSchema };
-    if (tool?.outputSchema !== undefined) entry.outputSchema = tool.outputSchema;
+    const entry: ToolSnapshot = tool ? toToolSnapshot(tool) : { inputSchema: undefined };
     const doc = buildJsDoc(tool, toolIndent);
     const keyLine = `${toolIndent}${JSON.stringify(name)}: ${jsonReindented(entry, toolIndent.length)}`;
     return doc ? `${doc}\n${keyLine}` : keyLine;

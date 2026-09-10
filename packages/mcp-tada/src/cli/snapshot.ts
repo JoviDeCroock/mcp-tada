@@ -3,9 +3,21 @@
 // the `--json` dump. The emitter in introspect.ts is written to keep the `.d.ts` literal
 // strict, quoted-key JSON, so this is a straightforward strip-comments-then-JSON.parse.
 
+/** The behavioural hints a server may attach to a tool (`Tool["annotations"]` in the SDK). */
+export interface ToolAnnotationsSnapshot {
+  title?: string;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
+  [key: string]: unknown;
+}
+
 export interface ToolSnapshot {
   inputSchema: unknown;
   outputSchema?: unknown;
+  /** Present only when the server sent `annotations` for the tool. */
+  annotations?: ToolAnnotationsSnapshot;
 }
 
 export interface IntrospectionData {

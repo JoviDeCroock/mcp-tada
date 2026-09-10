@@ -44,6 +44,16 @@ describe("introspect", () => {
 
     // a tool with an outputSchema keeps it
     expect(parsed.tools["get-structured-content"]?.outputSchema).toBeDefined();
+
+    // annotations are recorded with their keys in spec order
+    expect(parsed.tools["gzip-file-as-resource"]?.annotations).toBeDefined();
+    expect(Object.keys(parsed.tools["gzip-file-as-resource"]?.annotations ?? {})).toEqual([
+      "readOnlyHint",
+      "destructiveHint",
+      "idempotentHint",
+      "openWorldHint",
+    ]);
+    expect(parsed.tools["get-sum"]?.annotations?.readOnlyHint).toBe(true);
   }, 30_000);
 
   it("does not rewrite the file when content is unchanged", async () => {
@@ -100,6 +110,29 @@ describe("check", () => {
     const { report } = await check({ target, against: out });
     expect(report.identical).toBe(false);
     expect(report.removed).toEqual(["a-tool-that-no-longer-exists"]);
+  }, 30_000);
+
+  it("reports annotation drift, and separately a lost safety guarantee", async () => {
+    const out = tmpFile("introspection.json");
+    const result = await introspect({ target, out, json: true });
+    const data = JSON.parse(result.text) as {
+      tools: Record<string, { annotations?: Record<string, unknown> }>;
+    };
+    // The snapshot promised more than the live server does: get-sum used to be read-only (it
+    // is, live: readOnlyHint true) and gzip-file-as-resource used to be read-only too (it is
+    // not, live), while echo only changes an unrelated hint.
+    data.tools["gzip-file-as-resource"]!.annotations!.readOnlyHint = true;
+    data.tools["echo"]!.annotations!.openWorldHint = true;
+    // a tool the snapshot recorded without annotations, which the live server annotates
+    delete data.tools["get-env"]!.annotations;
+    writeFileSync(out, JSON.stringify(data, null, 2));
+
+    const { report, text } = await check({ target, against: out });
+    expect(report.identical).toBe(false);
+    expect(report.annotationsChanged).toEqual(["echo", "get-env", "gzip-file-as-resource"]);
+    expect(report.safetyWeakened).toEqual(["gzip-file-as-resource"]);
+    expect(text).toContain("annotations changed: echo, get-env, gzip-file-as-resource");
+    expect(text).toContain("no longer read-only or non-destructive: gzip-file-as-resource");
   }, 30_000);
 });
 

@@ -1,4 +1,5 @@
-import { initMcpTada } from "mcp-tada";
+import { initMcpTada, readOnly } from "mcp-tada";
+import type { ReadOnlyToolNames } from "mcp-tada";
 import { describe, expectTypeOf, test } from "vitest";
 import { defineTool, defineTools } from "../src/define.js";
 import type { IntrospectionOf } from "../src/define.js";
@@ -128,6 +129,41 @@ describe("defineTool / defineTools types", () => {
 
     // @ts-expect-error missing required arg b
     await mcp.callTool("sum", { a: 1 });
+  });
+});
+
+describe("IntrospectionOf carries annotations", () => {
+  const annotated = defineTools([
+    defineTool({
+      name: "peek",
+      inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true, destructiveHint: false },
+      handler: () => ({ content: [] }),
+    }),
+    defineTool({
+      name: "wipe",
+      inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: false, destructiveHint: true },
+      handler: () => ({ content: [] }),
+    }),
+    defineTool({
+      name: "plain",
+      inputSchema: { type: "object", properties: {} },
+      handler: () => ({ content: [] }),
+    }),
+  ]);
+  type I = IntrospectionOf<typeof annotated>;
+
+  test("with literal hint values, so the mcp-tada filters apply", () => {
+    expectTypeOf<I["tools"]["peek"]["annotations"]>().toEqualTypeOf<{
+      readOnlyHint: true;
+      destructiveHint: false;
+    }>();
+    expectTypeOf<keyof I["tools"]["plain"]>().toEqualTypeOf<"inputSchema">();
+    expectTypeOf<ReadOnlyToolNames<I>>().toEqualTypeOf<"peek">();
+
+    const safe = readOnly(initMcpTada<I>().typed(undefined as any));
+    expectTypeOf<keyof typeof safe.tools>().toEqualTypeOf<"peek">();
   });
 });
 

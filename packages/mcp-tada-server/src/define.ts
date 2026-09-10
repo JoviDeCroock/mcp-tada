@@ -56,13 +56,14 @@ export type ToolDefinition<
   Name extends string = string,
   InputSchema = unknown,
   OutputSchema = undefined,
+  Annotations extends ToolAnnotations = ToolAnnotations,
 > = {
   name: Name;
   title?: string;
   description?: string;
   inputSchema: InputSchema;
   outputSchema?: OutputSchema;
-  annotations?: ToolAnnotations;
+  annotations?: Annotations;
   handler: ToolHandler<InputSchema, OutputSchema>;
 };
 
@@ -92,9 +93,10 @@ export function defineTool<
   const Name extends string,
   const InputSchema,
   const OutputSchema = undefined,
+  const Annotations extends ToolAnnotations = ToolAnnotations,
 >(
-  definition: ToolDefinition<Name, InputSchema, OutputSchema>,
-): ToolDefinition<Name, InputSchema, OutputSchema> {
+  definition: ToolDefinition<Name, InputSchema, OutputSchema, Annotations>,
+): ToolDefinition<Name, InputSchema, OutputSchema, Annotations> {
   return definition;
 }
 
@@ -121,12 +123,27 @@ export type DeepMutable<T> = T extends object ? { -readonly [K in keyof T]: Deep
 /**
  * Produces the same `Introspection` shape `mcp-tada introspect` would generate for a live server,
  * from a record of `ToolDefinition`s, e.g. `initMcpTada<IntrospectionOf<typeof tools>>()`.
+ * `annotations` is carried through with its literal values (`readOnlyHint: true`, not
+ * `boolean`), so `ReadOnlyToolNames` and `readOnly` from `mcp-tada` work on it too.
  */
 export type IntrospectionOf<Tools extends Record<string, AnyToolDefinition>> = {
   tools: {
-    [K in keyof Tools & string]: DeepMutable<ToolShapeOf<Tools[K]>>;
+    [K in keyof Tools & string]: DeepMutable<ToolShapeOf<Tools[K]> & AnnotationsShapeOf<Tools[K]>>;
   };
 };
+
+// Same optional-key dance as `ToolShapeOf`: only add an `annotations` key when the definition
+// declares one, so an unannotated tool matches a CLI snapshot's entry exactly. A definition
+// without `annotations` leaves the type parameter at its `ToolAnnotations` default (and an erased
+// `AnyToolDefinition` has the same type), which is what the `ToolAnnotations extends A` test
+// detects: any actual literal is narrower than the default.
+type AnnotationsShapeOf<T extends AnyToolDefinition> = T extends { annotations?: infer A }
+  ? [Exclude<A, undefined>] extends [never]
+    ? {}
+    : ToolAnnotations extends Exclude<A, undefined>
+      ? {}
+      : { annotations: Exclude<A, undefined> }
+  : {};
 
 // `outputSchema` is optional on every definition, so the inferred type is `X | undefined`. The
 // tuple wrapping stops the conditional from distributing over that union, and an erased

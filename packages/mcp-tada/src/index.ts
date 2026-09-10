@@ -1,21 +1,37 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult, Tool, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { listAllTools } from "./list.js";
 import type { FromOutputSchema, FromSchema } from "./schema.js";
 
 export type { FromOutputSchema, FromSchema } from "./schema.js";
 export { combineMcpTada } from "./combine.js";
 export type { AnyTypedClient, CombinedClient, CombinedIntrospection } from "./combine.js";
+export { readOnly } from "./annotations.js";
+export type {
+  NonDestructiveToolNames,
+  PickTools,
+  ReadOnlyIntrospection,
+  ReadOnlyToolNames,
+  ToolAnnotationsOf,
+} from "./annotations.js";
 export { listAllTools } from "./list.js";
 export type { ListToolsFn, ListToolsResultLike } from "./list.js";
+
+/** One tool's entry in a snapshot: its JSON Schema input, and, when the server declared them,
+ * its output schema and behavioural annotations (`readOnlyHint`, `destructiveHint`, ...). */
+export type ToolEntry = {
+  inputSchema: unknown;
+  outputSchema?: unknown;
+  annotations?: ToolAnnotations;
+};
 
 /**
  * Shape of a generated introspection snapshot: a name-keyed map of tools, each carrying
  * its JSON Schema input (and optionally output) schema. Matches the output of `mcp-tada introspect`.
  */
 export type Introspection = {
-  tools: Record<string, { inputSchema: unknown; outputSchema?: unknown }>;
+  tools: Record<string, ToolEntry>;
 };
 
 /** Alias kept for discoverability alongside `Introspection`. */
