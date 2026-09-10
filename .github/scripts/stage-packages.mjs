@@ -2,6 +2,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
+import { hasRemoteReleaseTag, releaseTagName } from "./release-tags.mjs";
 
 const root = process.cwd();
 const config = JSON.parse(readFileSync(join(root, ".changeset/config.json"), "utf8"));
@@ -106,6 +107,12 @@ for (const packageJsonPath of packageJsonPaths()) {
   if (!pkg.name || !pkg.version || pkg.private || ignored.has(pkg.name)) continue;
   if (versionExists(pkg.name, pkg.version)) {
     console.log(`Skipping ${pkg.name}@${pkg.version}; already published.`);
+    continue;
+  }
+  if (await hasRemoteReleaseTag(pkg.name, pkg.version)) {
+    console.log(
+      `Skipping ${pkg.name}@${pkg.version}; already staged and awaiting \`npm stage approve\` (tag ${releaseTagName(pkg.name, pkg.version)} exists).`,
+    );
     continue;
   }
 
