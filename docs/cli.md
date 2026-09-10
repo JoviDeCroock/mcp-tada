@@ -15,14 +15,25 @@ The `mcp-tada` binary is installed by the package (`bin/mcp-tada.js`).
 
 ## `mcp-tada introspect`
 
-Connects to an MCP server, pages through `tools/list` until `nextCursor` is exhausted, and
-writes a name-keyed `introspection.d.ts`:
+Connects to an MCP server, pages through `tools/list` (and `prompts/list`, when the server
+declares the `prompts` capability) until `nextCursor` is exhausted, and writes a name-keyed
+`introspection.d.ts`:
 
 ```
 export type introspection = {
   "tools": {
     "get-sum": {
       "inputSchema": { "type": "object", "properties": { "a": {...}, "b": {...} }, "required": ["a", "b"] }
+    },
+    ...
+  },
+  "prompts": {
+    /**
+     * Arguments Prompt
+     * @param city Name of the city
+     */
+    "args-prompt": {
+      "arguments": [{ "name": "city", "required": true }, { "name": "state", "required": false }]
     },
     ...
   }
@@ -36,9 +47,17 @@ declares them, with the known keys emitted in that order so the file does not ch
 reorders them. Each tool key gets a JSDoc comment above it built from the tool's `title` and
 `description`, so editors show it on hover.
 
+The `prompts` map is present only when the server declares the `prompts` capability (it is `{}`
+for a server that declares it but lists none), so a snapshot of a tools-only server is unchanged.
+If a server declares the capability but `prompts/list` fails, a warning is printed and the key is
+omitted rather than failing the whole snapshot.
+Each prompt records its argument names and `required` flags in the server's order; the prompt's
+`title` and `description`, and each argument's description as a `@param` tag, go into the JSDoc
+block rather than the data, so a reworded description does not read as drift in `check`.
+
 The header comment records the server's name and version (`client.getServerVersion()`), the
 negotiated protocol version (when the transport exposes it), the `tools.listChanged`
-capability, and, when present in the raw `tools/list` result, `ttlMs` / `cacheScope`. Those last
+capability, `prompts.listChanged` when the server offers prompts, and, when present in the raw `tools/list` result, `ttlMs` / `cacheScope`. Those last
 two are read defensively as unknown fields: they are part of a 2026-07-28 MCP spec RC for
 result caching hints and are not yet in `@modelcontextprotocol/sdk`'s `ListToolsResult` type as
 of SDK 1.30, so most servers will not send them and the lines are omitted when absent.
@@ -75,7 +94,7 @@ mcp-tada introspect --url https://example.com/mcp --header "Authorization: Beare
 mcp-tada introspect --stdio "node server.js" --timeout 5000
 ```
 
-`--timeout <ms>` applies to both connecting and each `tools/list` request, and defaults to
+`--timeout <ms>` applies to connecting and to each `tools/list` and `prompts/list` request, and defaults to
 `30000`. On timeout, the transport is closed and the command exits 1 with a message naming the
 target (the `--url` or `--command`/`--stdio` value, or the config alias). A server's `timeoutMs`
 in the config file (see below) sets its default; `--timeout` on the command line overrides it for
@@ -87,7 +106,7 @@ every selected server.
   directory, or `introspection.json` with `--json`).
 - `--name <TypeName>` also exports `export type <TypeName> = introspection;`, useful when you
   introspect more than one server into the same project.
-- `--json` dumps the raw `{ tools: { "<name>": { inputSchema, outputSchema?, annotations? } } }` data as JSON
+- `--json` dumps the raw `{ tools: { "<name>": { inputSchema, outputSchema?, annotations? } }, prompts?: { "<name>": { arguments } } }` data as JSON
   instead of a `.d.ts`. This is the same shape `check` reads back, so it is handy for other
   tooling that wants the data without parsing TypeScript.
 - `--verbose` expands the warning summaries below into per-tool lists.
@@ -129,6 +148,9 @@ The report lists, when present:
 - tools whose `annotations` appeared, disappeared, or changed, and, on a separate line, the
   subset that lost a safety guarantee: `readOnlyHint` was `true` and no longer is, or
   `destructiveHint` was `false` and no longer is
+- added and removed prompts, and prompts whose argument list changed (names, order, or
+  `required` flags). A snapshot without a `prompts` key is diffed as having none, so a server
+  that offers prompts shows them all as added until the snapshot is regenerated.
 
 Exit code is `1` if there is any difference, `0` if the live server matches the snapshot
 exactly. This makes `mcp-tada check --against introspection.d.ts` a good CI step to catch a
@@ -219,7 +241,8 @@ if (!report.identical) throw new Error(text);
 (`write: false` skips the file and only returns `text` and `data`). It takes the same `out`,
 `name`, `json`, and `verbose` options as the flags. `check(options)` re-introspects and returns
 `{ report, text }`, where `report` has `added`, `removed`, `inputChanged`, `outputAppeared`,
-`outputDisappeared`, `outputChanged`, `annotationsChanged`, `safetyWeakened`, and `identical`.
+`outputDisappeared`, `outputChanged`, `annotationsChanged`, `safetyWeakened`, `promptsAdded`,
+`promptsRemoved`, `promptsChanged`, and `identical`.
 
 A `ServerTarget` is `{ command?, args?, env?, url?, headers?, timeoutMs? }`, the normalized form of
 the target flags. Unlike the CLI, no default timeout is applied unless you set `timeoutMs`
@@ -227,7 +250,9 @@ the target flags. Unlike the CLI, no default timeout is applied unless you set `
 `mcpServers` file into `{ servers }`, each entry a `ServerTarget` plus `output`.
 
 The building blocks are exported too, for tooling that wants to compose its own flow:
-`connectClient` and `introspectTarget` (connect and list without writing anything),
-`buildIntrospectionData`, `toToolSnapshot`, `collectWarnings`, `formatDts`, `formatJson`, and
-`writeIfChanged` on the introspect side; `diffIntrospection` and `formatReport` on the check side; and
+`connectClient` and `introspectTarget` (connect and list without writing anything; the result is
+`{ tools, prompts?, meta }`), `buildIntrospectionData`, `toToolSnapshot`, `toPromptSnapshot`,
+`collectWarnings`, `formatDts`, `formatJson`, and `writeIfChanged` on the introspect side
+(`buildIntrospectionData`, `formatDts` and `formatJson` take that `{ tools, prompts? }` source, or
+a bare `Tool[]`); `diffIntrospection` and `formatReport` on the check side; and
 `parseSnapshotText`, `parseDtsSnapshot`, and `detectFormat` for reading a snapshot back.

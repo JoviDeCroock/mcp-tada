@@ -2,6 +2,7 @@
 // server: mcp-servers/everything@2.0.0
 // protocolVersion: unknown
 // capabilities.tools.listChanged: true
+// capabilities.prompts.listChanged: true
 
 export type introspection = {
   "tools": {
@@ -368,6 +369,68 @@ export type introspection = {
         "idempotentHint": true,
         "openWorldHint": false
       }
+    }
+  },
+  "prompts": {
+    /**
+     * Arguments Prompt
+     * A prompt with two arguments, one required and one optional
+     * @param city Name of the city
+     */
+    "args-prompt": {
+      "arguments": [
+        {
+          "name": "city",
+          "required": true
+        },
+        {
+          "name": "state",
+          "required": false
+        }
+      ]
+    },
+    /**
+     * Team Management
+     * First argument choice narrows values for second argument.
+     * @param department Choose the department.
+     * @param name Choose a team member to lead the selected department.
+     */
+    "completable-prompt": {
+      "arguments": [
+        {
+          "name": "department",
+          "required": true
+        },
+        {
+          "name": "name",
+          "required": true
+        }
+      ]
+    },
+    /**
+     * Resource Prompt
+     * A prompt that includes an embedded resource reference
+     * @param resourceType Type of resource to fetch
+     * @param resourceId ID of the text resource to fetch
+     */
+    "resource-prompt": {
+      "arguments": [
+        {
+          "name": "resourceType",
+          "required": true
+        },
+        {
+          "name": "resourceId",
+          "required": true
+        }
+      ]
+    },
+    /**
+     * Simple Prompt
+     * A prompt with no arguments
+     */
+    "simple-prompt": {
+      "arguments": []
     }
   }
 };

@@ -54,6 +54,19 @@ describe("introspect", () => {
       "openWorldHint",
     ]);
     expect(parsed.tools["get-sum"]?.annotations?.readOnlyHint).toBe(true);
+
+    // prompts are recorded with their argument names and required flags, descriptions as @param
+    expect(result.text).toContain("// capabilities.prompts.listChanged: true");
+    expect(parsed.prompts?.["args-prompt"]).toEqual({
+      arguments: [
+        { name: "city", required: true },
+        { name: "state", required: false },
+      ],
+    });
+    expect(parsed.prompts?.["simple-prompt"]).toEqual({ arguments: [] });
+    expect(result.text).toMatch(/@param city Name of the city\s*\n\s*\*\/\s*\n\s*"args-prompt"/);
+    const promptNames = Object.keys(parsed.prompts ?? {});
+    expect(promptNames).toEqual([...promptNames].sort());
   }, 30_000);
 
   it("does not rewrite the file when content is unchanged", async () => {
@@ -71,6 +84,7 @@ describe("introspect", () => {
     expect(result.wrote).toBe(true);
     const parsed = JSON.parse(result.text);
     expect(parsed.tools["get-sum"]).toBeDefined();
+    expect(parsed.prompts["args-prompt"].arguments[0]).toEqual({ name: "city", required: true });
   }, 30_000);
 
   it("emits a JSDoc block with title/description above each tool", async () => {
@@ -110,6 +124,37 @@ describe("check", () => {
     const { report } = await check({ target, against: out });
     expect(report.identical).toBe(false);
     expect(report.removed).toEqual(["a-tool-that-no-longer-exists"]);
+  }, 30_000);
+
+  it("reports added, removed and changed prompts", async () => {
+    const out = tmpFile("introspection.json");
+    const result = await introspect({ target, out, json: true });
+    const data = JSON.parse(result.text) as {
+      prompts: Record<string, { arguments: { name: string; required?: boolean }[] }>;
+    };
+    delete data.prompts["simple-prompt"]; // live has it, snapshot does not: added
+    data.prompts["retired-prompt"] = { arguments: [] }; // snapshot has it, live does not: removed
+    data.prompts["args-prompt"]!.arguments[1]!.required = true; // flag flipped: changed
+    writeFileSync(out, JSON.stringify(data, null, 2));
+
+    const { report, text } = await check({ target, against: out });
+    expect(report.identical).toBe(false);
+    expect(report.promptsAdded).toEqual(["simple-prompt"]);
+    expect(report.promptsRemoved).toEqual(["retired-prompt"]);
+    expect(report.promptsChanged).toEqual(["args-prompt"]);
+    expect(text).toContain("prompt arguments changed: args-prompt");
+  }, 30_000);
+
+  it("treats a snapshot taken before prompts were recorded as having none", async () => {
+    const out = tmpFile("introspection.json");
+    const result = await introspect({ target, out, json: true });
+    const data = JSON.parse(result.text) as { prompts?: unknown };
+    delete data.prompts;
+    writeFileSync(out, JSON.stringify(data, null, 2));
+
+    const { report } = await check({ target, against: out });
+    expect(report.promptsAdded.length).toBeGreaterThan(0);
+    expect(report.promptsRemoved).toEqual([]);
   }, 30_000);
 
   it("reports annotation drift, and separately a lost safety guarantee", async () => {
