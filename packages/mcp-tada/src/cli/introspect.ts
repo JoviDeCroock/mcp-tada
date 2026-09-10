@@ -1,22 +1,30 @@
-// Connects to an MCP server, pages through tools/list, and emits either a typed
-// `introspection.d.ts` snapshot or the raw tool data as JSON.
+// Connects to an MCP server, pages through tools/list (and prompts/list when the server declares
+// the prompts capability), and emits either a typed `introspection.d.ts` snapshot or the raw
+// data as JSON.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { listAllTools } from "../list.js";
+import type { Prompt, Tool } from "@modelcontextprotocol/sdk/types.js";
+import { listAllPrompts, listAllTools } from "../list.js";
 import {
   connectClient,
   getNegotiatedProtocolVersion,
   withTimeoutWrapping,
   type ServerTarget,
 } from "./connect.js";
-import type { IntrospectionData, ToolAnnotationsSnapshot, ToolSnapshot } from "./snapshot.js";
+import type {
+  IntrospectionData,
+  PromptSnapshot,
+  ToolAnnotationsSnapshot,
+  ToolSnapshot,
+} from "./snapshot.js";
 
 export interface IntrospectMeta {
   serverName?: string;
   serverVersion?: string;
   protocolVersion?: string;
   toolsListChanged?: boolean;
+  /** Set when the server declares the `prompts` capability. */
+  promptsListChanged?: boolean;
   /** Read defensively: not present in @modelcontextprotocol/sdk 1.30's ListToolsResult type,
    * but the 2026-07-28 spec RC adds server-controlled result caching hints. */
   ttlMs?: number;
@@ -31,10 +39,19 @@ export interface RawToolListResult {
   cacheScope?: string;
 }
 
-/** Connect, page through tools/list until nextCursor is exhausted, then disconnect. */
+/** What `introspectTarget` read from a server: every tool, and every prompt when the server
+ * declares the `prompts` capability (`undefined` when it does not, so a snapshot of such a
+ * server has no `prompts` key at all). */
+export interface IntrospectSource {
+  tools: Tool[];
+  prompts?: Prompt[];
+}
+
+/** Connect, page through tools/list (and prompts/list when offered) until nextCursor is
+ * exhausted, then disconnect. */
 export async function introspectTarget(
   target: ServerTarget,
-): Promise<{ tools: Tool[]; meta: IntrospectMeta }> {
+): Promise<IntrospectSource & { meta: IntrospectMeta }> {
   const { client, transport } = await connectClient(target);
   try {
     const caps = client.getServerCapabilities();
@@ -50,6 +67,12 @@ export async function introspectTarget(
         },
       ),
     );
+    const prompts =
+      caps?.prompts !== undefined
+        ? await withTimeoutWrapping(target, transport, () =>
+            listAllPrompts((params) => client.listPrompts(params, listOptions)),
+          )
+        : undefined;
 
     // NOTE: getNegotiatedProtocolVersion() only tells us anything for the streamable HTTP
     // transport, which exposes it publicly; stdio/SSE don't expose the negotiated version
@@ -58,11 +81,12 @@ export async function introspectTarget(
     if (version?.name !== undefined) meta.serverName = version.name;
     if (version?.version !== undefined) meta.serverVersion = version.version;
     if (caps?.tools?.listChanged !== undefined) meta.toolsListChanged = caps.tools.listChanged;
+    if (caps?.prompts !== undefined) meta.promptsListChanged = caps.prompts.listChanged ?? false;
     if (lastRaw?.ttlMs !== undefined) meta.ttlMs = lastRaw.ttlMs;
     if (lastRaw?.cacheScope !== undefined) meta.cacheScope = lastRaw.cacheScope;
     const protocolVersion = getNegotiatedProtocolVersion(transport);
     if (protocolVersion !== undefined) meta.protocolVersion = protocolVersion;
-    return { tools, meta };
+    return prompts !== undefined ? { tools, prompts, meta } : { tools, meta };
   } finally {
     // withTimeoutWrapping already closed the transport on a timeout; a second close is a no-op
     // in the happy path and best-effort (never fatal) if the transport is already gone.
@@ -103,19 +127,36 @@ function orderAnnotations(annotations: Record<string, unknown>): ToolAnnotations
   return out as ToolAnnotationsSnapshot;
 }
 
-/** Build the sorted, name-keyed `{ inputSchema, outputSchema?, annotations? }` map from a raw
- * tool list. */
-export function buildIntrospectionData(tools: Tool[]): IntrospectionData {
-  const byName = new Map<string, Tool>();
-  for (const tool of tools) byName.set(tool.name, tool);
-  const names = [...byName.keys()].sort();
-  const map: Record<string, ToolSnapshot> = {};
-  for (const name of names) {
-    const tool = byName.get(name);
-    if (!tool) continue;
-    map[name] = toToolSnapshot(tool);
+/** The snapshot entry for one prompt: its argument names and `required` flags, in the server's
+ * order. Descriptions live in the JSDoc block, not here. */
+export function toPromptSnapshot(prompt: Prompt): PromptSnapshot {
+  return {
+    arguments: (prompt.arguments ?? []).map((arg) =>
+      arg.required !== undefined ? { name: arg.name, required: arg.required } : { name: arg.name },
+    ),
+  };
+}
+
+/** Sort by name, keeping the last definition when a server lists a name twice. */
+function sortedByName<T extends { name: string }>(items: T[]): T[] {
+  const byName = new Map<string, T>();
+  for (const item of items) byName.set(item.name, item);
+  return [...byName.keys()].sort().map((name) => byName.get(name) as T);
+}
+
+/** Build the sorted, name-keyed snapshot data: `tools` as `{ inputSchema, outputSchema?,
+ * annotations? }`, and `prompts` as `{ arguments }` when the source has them. Accepts a bare
+ * `Tool[]` for callers that only have tools. */
+export function buildIntrospectionData(source: IntrospectSource | Tool[]): IntrospectionData {
+  const { tools, prompts } = Array.isArray(source) ? { tools: source } : source;
+  const data: IntrospectionData = { tools: {} };
+  for (const tool of sortedByName(tools)) data.tools[tool.name] = toToolSnapshot(tool);
+  if (prompts !== undefined) {
+    data.prompts = {};
+    for (const prompt of sortedByName(prompts))
+      data.prompts[prompt.name] = toPromptSnapshot(prompt);
   }
-  return { tools: map };
+  return data;
 }
 
 export interface IntrospectWarnings {
@@ -154,14 +195,45 @@ function jsonReindented(value: unknown, indent: number): string {
     .join("\n");
 }
 
-function buildJsDoc(tool: Tool | undefined, indent: string): string | undefined {
-  if (!tool) return undefined;
-  const lines: string[] = [];
-  if (tool.title !== undefined) lines.push(tool.title);
-  if (tool.description !== undefined) lines.push(tool.description);
+function buildJsDoc(lines: string[], indent: string): string | undefined {
   if (lines.length === 0) return undefined;
   const body = lines.map((l) => `${indent} * ${l.replace(/\*\//g, "*\\/")}`).join("\n");
   return `${indent}/**\n${body}\n${indent} */`;
+}
+
+function toolDocLines(tool: Tool): string[] {
+  const lines: string[] = [];
+  if (tool.title !== undefined) lines.push(tool.title);
+  if (tool.description !== undefined) lines.push(tool.description);
+  return lines;
+}
+
+// Argument descriptions are only in the JSDoc, as `@param` tags, so they show on hover without
+// making a reworded description count as drift in `check`.
+function promptDocLines(prompt: Prompt): string[] {
+  const lines: string[] = [];
+  if (prompt.title !== undefined) lines.push(prompt.title);
+  if (prompt.description !== undefined) lines.push(prompt.description);
+  for (const arg of prompt.arguments ?? []) {
+    if (arg.description !== undefined) lines.push(`@param ${arg.name} ${arg.description}`);
+  }
+  return lines;
+}
+
+/** One `"name": {...}` member per item, each preceded by its JSDoc block when it has one. */
+function formatMembers<T extends { name: string }>(
+  items: T[],
+  indent: string,
+  toEntry: (item: T) => unknown,
+  toDoc: (item: T) => string[],
+): string {
+  return sortedByName(items)
+    .map((item) => {
+      const doc = buildJsDoc(toDoc(item), indent);
+      const line = `${indent}${JSON.stringify(item.name)}: ${jsonReindented(toEntry(item), indent.length)}`;
+      return doc ? `${doc}\n${line}` : line;
+    })
+    .join(",\n");
 }
 
 export interface FormatDtsOptions {
@@ -169,32 +241,26 @@ export interface FormatDtsOptions {
 }
 
 /** Emit the `.d.ts` snapshot text. The type literal itself is strict, quoted-key JSON,
- * so `snapshot.ts` can parse it back by stripping the header/JSDoc comments. */
+ * so `snapshot.ts` can parse it back by stripping the header/JSDoc comments. Accepts a bare
+ * `Tool[]` for callers that only have tools. */
 export function formatDts(
-  tools: Tool[],
+  source: IntrospectSource | Tool[],
   meta: IntrospectMeta,
   opts: FormatDtsOptions = {},
 ): string {
-  const byName = new Map(tools.map((t) => [t.name, t] as const));
-  const names = [...byName.keys()].sort();
+  const { tools, prompts } = Array.isArray(source) ? { tools: source } : source;
 
   const header: string[] = ["// Generated by mcp-tada. Do not edit."];
   header.push(`// server: ${meta.serverName ?? "unknown"}@${meta.serverVersion ?? "unknown"}`);
   header.push(`// protocolVersion: ${meta.protocolVersion ?? "unknown"}`);
   header.push(`// capabilities.tools.listChanged: ${meta.toolsListChanged ?? false}`);
+  if (meta.promptsListChanged !== undefined) {
+    header.push(`// capabilities.prompts.listChanged: ${meta.promptsListChanged}`);
+  }
   if (meta.ttlMs !== undefined) header.push(`// ttlMs: ${meta.ttlMs}`);
   if (meta.cacheScope !== undefined) header.push(`// cacheScope: ${meta.cacheScope}`);
 
-  const toolIndent = "    "; // tool keys sit 4 spaces in (introspection = { tools: { <here> } })
-  const blocks = names.map((name) => {
-    const tool = byName.get(name);
-    const entry: ToolSnapshot = tool ? toToolSnapshot(tool) : { inputSchema: undefined };
-    const doc = buildJsDoc(tool, toolIndent);
-    const keyLine = `${toolIndent}${JSON.stringify(name)}: ${jsonReindented(entry, toolIndent.length)}`;
-    return doc ? `${doc}\n${keyLine}` : keyLine;
-  });
-
-  const toolsBody = blocks.join(",\n");
+  const indent = "    "; // member keys sit 4 spaces in (introspection = { tools: { <here> } })
   const exportName = opts.name;
 
   const parts = [
@@ -202,10 +268,16 @@ export function formatDts(
     "",
     "export type introspection = {",
     '  "tools": {',
-    toolsBody,
-    "  }",
-    "};",
+    formatMembers(tools, indent, toToolSnapshot, toolDocLines),
   ];
+  if (prompts !== undefined) {
+    parts.push(
+      "  },",
+      '  "prompts": {',
+      formatMembers(prompts, indent, toPromptSnapshot, promptDocLines),
+    );
+  }
+  parts.push("  }", "};");
   if (exportName && exportName !== "introspection") {
     parts.push("", `export type ${exportName} = introspection;`);
   }
@@ -213,10 +285,10 @@ export function formatDts(
   return parts.join("\n");
 }
 
-/** Emit the raw introspection data (the same `{ tools: {...} }` shape as the `.d.ts` literal)
- * as plain JSON, useful for `check` and other tooling. */
-export function formatJson(tools: Tool[]): string {
-  return `${JSON.stringify(buildIntrospectionData(tools), null, 2)}\n`;
+/** Emit the raw introspection data (the same `{ tools: {...}, prompts?: {...} }` shape as the
+ * `.d.ts` literal) as plain JSON, useful for `check` and other tooling. */
+export function formatJson(source: IntrospectSource | Tool[]): string {
+  return `${JSON.stringify(buildIntrospectionData(source), null, 2)}\n`;
 }
 
 export interface IntrospectOptions {
@@ -243,16 +315,17 @@ const DEFAULT_OUT = "introspection.d.ts";
 /** High-level entry used by both the CLI and tests: introspect one target and, by default,
  * write the snapshot to disk (skipping the write if the content is byte-identical). */
 export async function introspect(opts: IntrospectOptions): Promise<IntrospectRunResult> {
-  const { tools, meta } = await introspectTarget(opts.target);
+  const { meta, ...source } = await introspectTarget(opts.target);
+  const { tools } = source;
 
-  const data = buildIntrospectionData(tools);
+  const data = buildIntrospectionData(source);
   const warnings = collectWarnings(tools);
   reportWarnings(warnings, opts.verbose ?? false);
 
   const outPath = opts.out ?? (opts.json ? "introspection.json" : DEFAULT_OUT);
   const formatOpts: FormatDtsOptions = {};
   if (opts.name !== undefined) formatOpts.name = opts.name;
-  const text = opts.json ? formatJson(tools) : formatDts(tools, meta, formatOpts);
+  const text = opts.json ? formatJson(source) : formatDts(source, meta, formatOpts);
 
   let wrote = false;
   if (opts.write ?? true) {

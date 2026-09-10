@@ -1,5 +1,5 @@
 // Parsing a previously generated introspection snapshot back into data, either from the
-// `.d.ts` mcp-tada emits (a JSON type literal with JSDoc comments above tool keys) or from
+// `.d.ts` mcp-tada emits (a JSON type literal with JSDoc comments above tool and prompt keys) or from
 // the `--json` dump. The emitter in introspect.ts is written to keep the `.d.ts` literal
 // strict, quoted-key JSON, so this is a straightforward strip-comments-then-JSON.parse.
 
@@ -20,8 +20,21 @@ export interface ToolSnapshot {
   annotations?: ToolAnnotationsSnapshot;
 }
 
+/** One prompt argument as recorded in the snapshot. The description goes into the prompt's
+ * JSDoc block instead, so a reworded description does not read as drift. */
+export interface PromptArgumentSnapshot {
+  name: string;
+  required?: boolean;
+}
+
+export interface PromptSnapshot {
+  arguments: PromptArgumentSnapshot[];
+}
+
 export interface IntrospectionData {
   tools: Record<string, ToolSnapshot>;
+  /** Present only when the server declares the `prompts` capability (possibly empty). */
+  prompts?: Record<string, PromptSnapshot>;
 }
 
 export type SnapshotFormat = "dts" | "json";
@@ -117,5 +130,9 @@ function assertIntrospectionData(data: unknown): asserts data is IntrospectionDa
     (data as { tools: unknown }).tools === null
   ) {
     throw new Error('Parsed snapshot is missing a top-level "tools" object');
+  }
+  const prompts = (data as { prompts?: unknown }).prompts;
+  if (prompts !== undefined && (typeof prompts !== "object" || prompts === null)) {
+    throw new Error('Parsed snapshot has a top-level "prompts" that is not an object');
   }
 }

@@ -47,9 +47,10 @@ type ServersOf<M extends Record<string, AnyTypedClient>> = {
   [K in keyof M]: IntrospectionOf<M[K]>;
 };
 
+// Prompts are not namespaced by the combined client; reach them through `servers.<alias>`.
 export type CombinedClient<M extends Record<string, AnyTypedClient>, Sep extends string> = Omit<
   TypedClient<CombinedIntrospection<ServersOf<M>, Sep>>,
-  "listTools" | "client" | "tools"
+  "listTools" | "client" | "tools" | "getPrompt" | "listPrompts"
 > & {
   /** Direct access to each underlying typed client, keyed by its alias. */
   servers: M;

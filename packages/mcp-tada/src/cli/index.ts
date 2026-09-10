@@ -20,12 +20,14 @@ export {
   formatJson,
   introspect,
   introspectTarget,
+  toPromptSnapshot,
   toToolSnapshot,
   writeIfChanged,
   type FormatDtsOptions,
   type IntrospectMeta,
   type IntrospectOptions,
   type IntrospectRunResult,
+  type IntrospectSource,
   type IntrospectWarnings,
 } from "./introspect.js";
 export {
@@ -41,6 +43,8 @@ export {
   parseDtsSnapshot,
   parseSnapshotText,
   type IntrospectionData,
+  type PromptArgumentSnapshot,
+  type PromptSnapshot,
   type SnapshotFormat,
   type ToolAnnotationsSnapshot,
   type ToolSnapshot,

@@ -41,6 +41,15 @@ describe.runIf(serverAvailable)("typed client (runtime, server-everything)", () 
     expect(JSON.stringify(result.content)).toContain("5");
   });
 
+  it("gets a prompt with typed arguments and lists every prompt", async () => {
+    const mcp = initMcpTada<introspection>().typed(client);
+    const result = await mcp.getPrompt("args-prompt", { city: "Chicago" });
+    expect(result.messages.length).toBeGreaterThan(0);
+    expect(JSON.stringify(result.messages)).toContain("Chicago");
+    const prompts = await mcp.listPrompts();
+    expect(prompts.map((p) => p.name)).toContain("args-prompt");
+  });
+
   it("calls get-structured-content and gets typed structuredContent back", async () => {
     const mcp = initMcpTada<introspection>().typed(client);
     const result = await mcp.callTool("get-structured-content", { location: "Chicago" });
@@ -117,6 +126,27 @@ describe("tools namespace (stub client)", () => {
     expect(await mcp.tools).toBe(mcp.tools);
     expect(Object.keys(mcp.tools)).toEqual([]);
     expect(calls).toEqual([]);
+  });
+});
+
+describe("getPrompt (stub client)", () => {
+  it("forwards name, arguments and options to the SDK client", async () => {
+    const calls: unknown[] = [];
+    const stub = {
+      listTools: async () => ({ tools: [] }),
+      callTool: async () => ({ content: [] }),
+      getPrompt: async (params: unknown, options: unknown) => {
+        calls.push({ params, options });
+        return { messages: [] };
+      },
+    };
+    const mcp = initMcpTada<introspection>().typed(stub as never);
+    await mcp.getPrompt("args-prompt", { city: "Chicago" }, { timeout: 5 });
+    await mcp.getPrompt("simple-prompt");
+    expect(calls).toEqual([
+      { params: { name: "args-prompt", arguments: { city: "Chicago" } }, options: { timeout: 5 } },
+      { params: { name: "simple-prompt", arguments: undefined }, options: undefined },
+    ]);
   });
 });
 

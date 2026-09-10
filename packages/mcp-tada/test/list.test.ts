@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { initMcpTada } from "../src/index.js";
 import { combineMcpTada } from "../src/combine.js";
-import { listAllTools } from "../src/list.js";
+import { listAllPrompts, listAllTools } from "../src/list.js";
 import type { introspection } from "./fixtures/everything.introspection.d.ts";
 
 function tool(name: string): Tool {
@@ -32,6 +32,16 @@ describe("listAllTools", () => {
   it("returns a single page's tools when there is no nextCursor", async () => {
     const tools = await listAllTools(async () => ({ tools: [tool("only")] }));
     expect(tools.map((t) => t.name)).toEqual(["only"]);
+  });
+});
+
+describe("listAllPrompts", () => {
+  it("follows nextCursor until exhausted", async () => {
+    const pages = [{ prompts: [{ name: "a" }], nextCursor: "2" }, { prompts: [{ name: "b" }] }];
+    let calls = 0;
+    const prompts = await listAllPrompts(async () => pages[calls++] ?? { prompts: [] });
+    expect(prompts.map((p) => p.name)).toEqual(["a", "b"]);
+    expect(calls).toBe(2);
   });
 });
 

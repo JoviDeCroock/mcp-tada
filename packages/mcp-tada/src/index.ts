@@ -1,7 +1,20 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import type { CallToolResult, Tool, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
-import { listAllTools } from "./list.js";
+import type {
+  CallToolResult,
+  GetPromptResult,
+  Prompt,
+  Tool,
+  ToolAnnotations,
+} from "@modelcontextprotocol/sdk/types.js";
+import { listAllPrompts, listAllTools } from "./list.js";
+import type {
+  HasNoRequiredPromptArgs,
+  PromptArgs,
+  PromptArgumentsOf,
+  PromptEntry,
+  PromptNames,
+} from "./prompts.js";
 import type { FromOutputSchema, FromSchema } from "./schema.js";
 
 export type { FromOutputSchema, FromSchema } from "./schema.js";
@@ -15,8 +28,21 @@ export type {
   ReadOnlyToolNames,
   ToolAnnotationsOf,
 } from "./annotations.js";
-export { listAllTools } from "./list.js";
-export type { ListToolsFn, ListToolsResultLike } from "./list.js";
+export { listAllPrompts, listAllTools } from "./list.js";
+export type {
+  ListPromptsFn,
+  ListPromptsResultLike,
+  ListToolsFn,
+  ListToolsResultLike,
+} from "./list.js";
+export type {
+  PromptArgs,
+  PromptArgsFrom,
+  PromptArgumentEntry,
+  PromptArgumentsOf,
+  PromptEntry,
+  PromptNames,
+} from "./prompts.js";
 
 /** One tool's entry in a snapshot: its JSON Schema input, and, when the server declared them,
  * its output schema and behavioural annotations (`readOnlyHint`, `destructiveHint`, ...). */
@@ -28,10 +54,13 @@ export type ToolEntry = {
 
 /**
  * Shape of a generated introspection snapshot: a name-keyed map of tools, each carrying
- * its JSON Schema input (and optionally output) schema. Matches the output of `mcp-tada introspect`.
+ * its JSON Schema input (and optionally output) schema, and, when the server declares the
+ * `prompts` capability, a name-keyed map of prompts with their argument lists. Matches the
+ * output of `mcp-tada introspect`.
  */
 export type Introspection = {
   tools: Record<string, ToolEntry>;
+  prompts?: Record<string, PromptEntry>;
 };
 
 /** Alias kept for discoverability alongside `Introspection`. */
@@ -108,11 +137,26 @@ export type ToolMethods<I extends Introspection> = {
   ) => Promise<ToolResult<I, N>>;
 };
 
+// Same widening for prompts: `args` is optional when no argument is `required: true`.
+type GetPromptArgs<N extends PromptNames<I>, I extends Introspection> =
+  HasNoRequiredPromptArgs<PromptArgumentsOf<I, N>> extends true
+    ? [args?: PromptArgs<I, N>, options?: RequestOptions]
+    : [args: PromptArgs<I, N>, options?: RequestOptions];
+
 export type TypedClient<I extends Introspection> = {
   callTool<N extends ToolNames<I>>(
     name: N,
     ...rest: CallToolArgs<I["tools"][N]["inputSchema"]>
   ): Promise<ToolResult<I, N>>;
+  /** `prompts/get` with the name narrowed to the snapshot's prompts and `args` typed from each
+   * prompt's argument list (required arguments as `string`, optional ones as `string?`). Not
+   * callable on a snapshot of a server without the `prompts` capability. */
+  getPrompt<N extends PromptNames<I>>(
+    name: N,
+    ...rest: GetPromptArgs<N, I>
+  ): Promise<GetPromptResult>;
+  /** Every prompt from every `prompts/list` page. Returns `[]` when the server has none. */
+  listPrompts(): Promise<Prompt[]>;
   /** Every tool as a method: `mcp.tools.<name>(args?, options?)`. Backed by a `Proxy` since tool
    * names only exist at the type level, so `Object.keys(mcp.tools)` is empty; use `listTools()`
    * for runtime discovery. */
@@ -173,10 +217,25 @@ export function initMcpTada<I extends Introspection>() {
         );
         return result as unknown as ToolResult<I, N>;
       }
+      async function getPrompt<N extends PromptNames<I>>(
+        name: N,
+        ...rest: GetPromptArgs<N, I>
+      ): Promise<GetPromptResult> {
+        const [args, options] = rest as [
+          Record<string, string> | undefined,
+          RequestOptions | undefined,
+        ];
+        return client.getPrompt(
+          { name, arguments: args as Record<string, string> | undefined },
+          options,
+        );
+      }
       return {
         client,
         listTools: () => listAllTools(client.listTools.bind(client)),
+        listPrompts: () => listAllPrompts(client.listPrompts.bind(client)),
         callTool,
+        getPrompt,
         tools: toolMethods<ToolMethods<I>>(callTool as never),
       };
     },

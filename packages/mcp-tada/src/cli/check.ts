@@ -22,6 +22,10 @@ export interface CheckReport {
   /** The subset of `annotationsChanged` where a tool lost a safety guarantee: `readOnlyHint`
    * went from `true` to anything else, or `destructiveHint` went from `false` to anything else. */
   safetyWeakened: string[];
+  promptsAdded: string[];
+  promptsRemoved: string[];
+  /** Prompts whose argument list (names, order, or `required` flags) changed. */
+  promptsChanged: string[];
   identical: boolean;
 }
 
@@ -34,8 +38,8 @@ export interface CheckRunResult {
 export async function check(opts: CheckOptions): Promise<CheckRunResult> {
   const snapshotText = readFileSync(opts.against, "utf8");
   const snapshot = parseSnapshotText(snapshotText, detectFormat(opts.against));
-  const { tools } = await introspectTarget(opts.target);
-  const live = buildIntrospectionData(tools);
+  const { meta: _meta, ...source } = await introspectTarget(opts.target);
+  const live = buildIntrospectionData(source);
   const report = diffIntrospection(snapshot, live);
   const text = formatReport(report, opts.against);
   return { report, text };
@@ -87,12 +91,29 @@ export function diffIntrospection(
   }
 
   const outputChanged = [...outputAppeared, ...outputDisappeared, ...outputChangedInPlace].sort();
+
+  // A snapshot taken before prompts were recorded, or of a server without the capability, has
+  // no `prompts` key; diffing it as empty means a live server's prompts show up as added, which
+  // is the honest answer (regenerating the snapshot resolves it).
+  const beforePrompts = before.prompts ?? {};
+  const afterPrompts = after.prompts ?? {};
+  const beforePromptNames = Object.keys(beforePrompts).sort();
+  const afterPromptNames = Object.keys(afterPrompts).sort();
+  const promptsAdded = afterPromptNames.filter((n) => !(n in beforePrompts));
+  const promptsRemoved = beforePromptNames.filter((n) => !(n in afterPrompts));
+  const promptsChanged = afterPromptNames.filter(
+    (n) => n in beforePrompts && !deepEqual(beforePrompts[n], afterPrompts[n]),
+  );
+
   const identical =
     added.length === 0 &&
     removed.length === 0 &&
     inputChanged.length === 0 &&
     outputChanged.length === 0 &&
-    annotationsChanged.length === 0;
+    annotationsChanged.length === 0 &&
+    promptsAdded.length === 0 &&
+    promptsRemoved.length === 0 &&
+    promptsChanged.length === 0;
 
   return {
     added,
@@ -103,6 +124,9 @@ export function diffIntrospection(
     outputChanged,
     annotationsChanged,
     safetyWeakened,
+    promptsAdded,
+    promptsRemoved,
+    promptsChanged,
     identical,
   };
 }
@@ -151,6 +175,15 @@ export function formatReport(report: CheckReport, against: string): string {
   }
   if (report.safetyWeakened.length > 0) {
     lines.push(`  no longer read-only or non-destructive: ${report.safetyWeakened.join(", ")}`);
+  }
+  if (report.promptsAdded.length > 0) {
+    lines.push(`  added prompts: ${report.promptsAdded.join(", ")}`);
+  }
+  if (report.promptsRemoved.length > 0) {
+    lines.push(`  removed prompts: ${report.promptsRemoved.join(", ")}`);
+  }
+  if (report.promptsChanged.length > 0) {
+    lines.push(`  prompt arguments changed: ${report.promptsChanged.join(", ")}`);
   }
   lines.push("");
   return lines.join("\n");
