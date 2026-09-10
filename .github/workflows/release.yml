@@ -87,7 +87,7 @@ jobs:
         run: npm install -g npm@11.15.0
 
       # No separate build step: stage-packages.mjs stages each package with
-      # `pnpm stage publish`, whose prepublishOnly hook builds it. mcp-tada-server
+      # `npm stage publish`, whose prepublishOnly hook builds it. mcp-tada-server
       # resolves mcp-tada's types from its dist, so build the workspace first.
       - name: Build
         run: pnpm -r build
