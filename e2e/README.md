@@ -1,10 +1,11 @@
 # e2e
 
-End-to-end tests against real MCP servers: two published stdio servers spawned with `npx -y` at a
-pinned version (`@modelcontextprotocol/server-filesystem`, `@modelcontextprotocol/server-memory`;
-bump the version in `mcp-tada.config.json` and `test/helpers.ts` together, then regenerate) and three
-public Streamable HTTP servers (DeepWiki, Cloudflare docs, Context7). They need the network, so
-they are not part of `pnpm run verify`; CI runs them on every pull request and nightly.
+End-to-end tests against real MCP servers: two published stdio servers installed as pinned
+devDependencies and run from `node_modules` (`@modelcontextprotocol/server-filesystem`,
+`@modelcontextprotocol/server-memory`; bump the version in `package.json`, then regenerate the
+snapshots) and three public Streamable HTTP servers (DeepWiki, Cloudflare docs, Context7). The
+remote servers need the network, so the suite is not part of `pnpm run verify`; CI runs it on
+every pull request and nightly.
 
 ```sh
 pnpm test:e2e                          # from the repo root

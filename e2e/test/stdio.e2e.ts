@@ -23,7 +23,7 @@ describe("@modelcontextprotocol/server-filesystem", () => {
   let client: Client;
 
   beforeAll(async () => {
-    client = await connectStdio("npx", ["-y", FILESYSTEM_SERVER, dir]);
+    client = await connectStdio(FILESYSTEM_SERVER, [dir]);
   });
   afterAll(async () => {
     await client.close();
@@ -72,7 +72,7 @@ describe("@modelcontextprotocol/server-memory", () => {
 
   beforeAll(async () => {
     // A fresh store per run, so entities from an earlier run cannot satisfy the assertions.
-    client = await connectStdio("npx", ["-y", MEMORY_SERVER], {
+    client = await connectStdio(MEMORY_SERVER, [], {
       MEMORY_FILE_PATH: join(dir, "memory.jsonl"),
     });
   });

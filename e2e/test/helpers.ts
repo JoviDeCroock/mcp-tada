@@ -34,23 +34,31 @@ export function committedSnapshot(alias: string): IntrospectionData {
   return parseDtsSnapshot(readFileSync(server.output, "utf8"));
 }
 
-// The published stdio servers, pinned so an upstream release cannot fail the drift check.
-export const FILESYSTEM_SERVER = "@modelcontextprotocol/server-filesystem@2026.8.31";
-export const MEMORY_SERVER = "@modelcontextprotocol/server-memory@2026.8.31";
+// The published stdio servers are pinned devDependencies of this package and run from
+// node_modules, not `npx -y`: several test files spawn them concurrently, and parallel `npx`
+// installs into a cold cache race each other into a half-installed tree.
+export const FILESYSTEM_SERVER = join(
+  e2eRoot,
+  "node_modules/@modelcontextprotocol/server-filesystem/dist/index.js",
+);
+export const MEMORY_SERVER = join(
+  e2eRoot,
+  "node_modules/@modelcontextprotocol/server-memory/dist/index.js",
+);
 
-/** Spawn a stdio server. The SDK only passes a minimal environment to the child, so anything the
- * server reads from `process.env` must be given explicitly here. Its stderr is dropped: `npx -y`
- * is chatty there, and a piped stream nobody reads would block the child once the buffer fills. */
+/** Spawn a stdio server script with node. The SDK only passes a minimal environment to the child,
+ * so anything the server reads from `process.env` must be given explicitly here. Its stderr is
+ * dropped: a piped stream nobody reads would block the child once the buffer fills. */
 export async function connectStdio(
-  command: string,
+  script: string,
   args: string[],
   env: Record<string, string> = {},
 ): Promise<Client> {
   const client = new Client({ name: "mcp-tada-e2e", version: "0.0.0" });
   await client.connect(
     new StdioClientTransport({
-      command,
-      args,
+      command: process.execPath,
+      args: [script, ...args],
       env: { ...getDefaultEnvironment(), ...env },
       stderr: "ignore",
     }),

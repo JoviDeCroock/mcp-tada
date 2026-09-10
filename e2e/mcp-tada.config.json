@@ -1,13 +1,13 @@
 {
   "servers": {
     "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem@2026.8.31", "."],
+      "command": "node",
+      "args": ["node_modules/@modelcontextprotocol/server-filesystem/dist/index.js", "."],
       "output": "snapshots/filesystem.introspection.d.ts"
     },
     "memory": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-memory@2026.8.31"],
+      "command": "node",
+      "args": ["node_modules/@modelcontextprotocol/server-memory/dist/index.js"],
       "output": "snapshots/memory.introspection.d.ts"
     },
     "deepwiki": {
