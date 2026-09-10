@@ -1,5 +1,7 @@
 # mcp-tada
 
+[![npm mcp-tada](https://img.shields.io/npm/v/mcp-tada?label=mcp-tada)](https://www.npmjs.com/package/mcp-tada) [![npm mcp-tada-server](https://img.shields.io/npm/v/mcp-tada-server?label=mcp-tada-server)](https://www.npmjs.com/package/mcp-tada-server) [![CI](https://github.com/JoviDeCroock/mcp-tada/actions/workflows/ci.yml/badge.svg)](https://github.com/JoviDeCroock/mcp-tada/actions/workflows/ci.yml)
+
 Compile-time typed [Model Context Protocol](https://modelcontextprotocol.io) tool calls for TypeScript. Zero runtime, no generated client code, no schema library at the type level.
 
 Point it at a running MCP server once, and every `callTool` in your codebase gets:
@@ -125,6 +127,8 @@ Tool lists can change. Servers declare `tools.listChanged`, and the 2026-07-28 s
 `docs/survey.md` covers 23 public servers and 230 tools. About 15 percent of tools declare `outputSchema`, and adoption is all-or-nothing per server. Expect typed inputs everywhere and typed outputs where the server author opted in.
 
 ## Server side
+
+Published separately as [`mcp-tada-server`](https://www.npmjs.com/package/mcp-tada-server).
 
 Writing the server too? `mcp-tada-server` declares tools once with a typed handler, registers them so the exact JSON Schemas hit the wire, and hands you the same introspection type for a same-codebase client with no network round trip.
 

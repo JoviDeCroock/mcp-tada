@@ -1,5 +1,7 @@
 # mcp-tada-server
 
+[![npm](https://img.shields.io/npm/v/mcp-tada-server)](https://www.npmjs.com/package/mcp-tada-server)
+
 Declare MCP tools once, on the server. `defineTool` types the handler's `args` from `inputSchema`
 and (when present) its return from `outputSchema`; `registerTools` puts them on an `McpServer` and
 emits the exact JSON Schemas on `tools/list`; `IntrospectionOf` gives you the same introspection

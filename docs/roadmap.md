@@ -39,6 +39,6 @@ Shipped: `combineMcpTada` merges several typed clients into one, namespacing too
 Provenance-based publishing mirrors pracht. Before the first release on `main`:
 
 1. Create the `npm` environment in the GitHub repository settings.
-2. Publish `mcp-tada@0.1.0` and `mcp-tada-server@0.1.0` once by hand so the package pages exist.
+2. Both packages were published by hand at 0.0.0 on 2026-09-10, so the package pages exist.
 3. On npmjs.com, for each package, add a trusted publisher: repository `JoviDeCroock/mcp-tada`, workflow `release.yml`, environment `npm`.
 4. After that, `release.yml` stages every unpublished version with `pnpm stage publish --provenance` under OIDC and prints the stage ids; approve them with `npm stage approve <id>`.
