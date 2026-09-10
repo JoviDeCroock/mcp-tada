@@ -20,13 +20,22 @@
     "lint": "oxlint . --fix",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "pnpm -r build && changeset publish"
+    "release": "pnpm -r build && changeset publish",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^1.0.1",
     "@changesets/cli": "^3.0.2",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.5.0",
     "oxfmt": "^0.67.0",
     "oxlint": "^1.82.0",
     "typescript": "^7.0.2"
+  },
+  "lint-staged": {
+    "*.{ts,mts,js,mjs,json}": [
+      "oxfmt --write",
+      "oxlint --fix"
+    ]
   }
 }

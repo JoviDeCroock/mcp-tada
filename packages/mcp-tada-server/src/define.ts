@@ -124,14 +124,17 @@ export type DeepMutable<T> = T extends object ? { -readonly [K in keyof T]: Deep
  */
 export type IntrospectionOf<Tools extends Record<string, AnyToolDefinition>> = {
   tools: {
-    [K in keyof Tools & string]: Tools[K] extends ToolDefinition<
-      infer _Name,
-      infer InputSchema,
-      infer OutputSchema
-    >
-      ? OutputSchema extends undefined
-        ? { inputSchema: DeepMutable<InputSchema> }
-        : { inputSchema: DeepMutable<InputSchema>; outputSchema: DeepMutable<OutputSchema> }
-      : never;
+    [K in keyof Tools & string]: DeepMutable<ToolShapeOf<Tools[K]>>;
   };
 };
+
+// `outputSchema` is optional on every definition, so the inferred type is `X | undefined`. The
+// tuple wrapping stops the conditional from distributing over that union, and an erased
+// `AnyToolDefinition` (where it infers as `unknown`) counts as having no output schema.
+type ToolShapeOf<T extends AnyToolDefinition> = T extends { outputSchema?: infer O }
+  ? [Exclude<O, undefined>] extends [never]
+    ? { inputSchema: T["inputSchema"] }
+    : unknown extends O
+      ? { inputSchema: T["inputSchema"] }
+      : { inputSchema: T["inputSchema"]; outputSchema: Exclude<O, undefined> }
+  : { inputSchema: T["inputSchema"] };

@@ -1,0 +1,3 @@
+# Fast per-file fixes on what is staged, then the full read-only verification gate.
+pnpm exec lint-staged
+pnpm run verify --check

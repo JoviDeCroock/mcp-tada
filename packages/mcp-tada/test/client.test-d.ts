@@ -1,4 +1,5 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { describe, expectTypeOf, test } from "vitest";
 import { initMcpTada } from "../src/index.js";
 import type { introspection } from "./fixtures/everything.introspection.d.ts";
@@ -51,5 +52,13 @@ describe("typed client", () => {
     // @ts-expect-error humidity is a number, not a string
     const bad: string = r1.structuredContent.humidity;
     void bad;
+  });
+});
+
+describe("result content stays typed", () => {
+  test("content is the SDK content block array on both branches", async () => {
+    const r = await mcp.callTool("get-sum", { a: 1, b: 2 });
+    expectTypeOf(r.content).toEqualTypeOf<CallToolResult["content"]>();
+    if (r.isError) expectTypeOf(r.content).toEqualTypeOf<CallToolResult["content"]>();
   });
 });

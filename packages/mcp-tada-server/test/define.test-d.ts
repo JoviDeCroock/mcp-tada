@@ -130,3 +130,17 @@ describe("defineTool / defineTools types", () => {
     await mcp.callTool("sum", { a: 1 });
   });
 });
+
+describe("IntrospectionOf through defineTools", () => {
+  test("a tool without outputSchema has no outputSchema key, even after AnyToolDefinition erasure", () => {
+    const erased = defineTools([
+      defineTool({
+        name: "ping",
+        inputSchema: { type: "object", properties: {} },
+        handler: () => ({ content: [] }),
+      }),
+    ]);
+    type Ping = IntrospectionOf<typeof erased>["tools"]["ping"];
+    expectTypeOf<keyof Ping>().toEqualTypeOf<"inputSchema">();
+  });
+});

@@ -1,0 +1,22 @@
+{
+  "name": "@mcp-tada/example-notes",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "introspect": "tsc -p tsconfig.server.json && mcp-tada introspect --config mcp-tada.config.json",
+    "check": "tsc -p tsconfig.server.json && mcp-tada check --config mcp-tada.config.json",
+    "start": "pnpm build && node dist/client.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "mcp-tada": "workspace:*",
+    "mcp-tada-server": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.0",
+    "typescript": "^7.0.2"
+  }
+}

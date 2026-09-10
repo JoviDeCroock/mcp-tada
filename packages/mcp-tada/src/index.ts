@@ -51,15 +51,18 @@ export type ToolOutput<I extends Introspection, N extends ToolNames<I>> = Struct
  *
  * `content`, `_meta` and the rest of `CallToolResult` stay as typed by the SDK in both branches.
  */
+// Spelled out rather than `Omit<CallToolResult, ...>`: the SDK result type carries a string index
+// signature (passthrough), and `Omit` over such a type keeps only the index signature, turning
+// `content` into `unknown`.
+type ResultBase = {
+  content: CallToolResult["content"];
+  _meta?: CallToolResult["_meta"];
+  [key: string]: unknown;
+};
+
 export type TypedCallToolResult<T extends { outputSchema?: unknown }> =
-  | (Omit<CallToolResult, "structuredContent" | "isError"> & {
-      isError: true;
-      structuredContent?: unknown;
-    })
-  | (Omit<CallToolResult, "structuredContent" | "isError"> & {
-      isError?: false;
-      structuredContent: StructuredContentOf<T>;
-    });
+  | (ResultBase & { isError: true; structuredContent?: unknown })
+  | (ResultBase & { isError?: false; structuredContent: StructuredContentOf<T> });
 
 export type ToolResult<I extends Introspection, N extends ToolNames<I>> = TypedCallToolResult<
   I["tools"][N]
