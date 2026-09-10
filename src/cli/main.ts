@@ -1,0 +1,256 @@
+#!/usr/bin/env node
+// mcp-tada CLI entry point: `introspect` and `check` subcommands, plus --help/--version.
+import { parseArgs } from "node:util";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  loadConfig,
+  parseEnvFlag,
+  parseHeaderFlag,
+  splitCommandLine,
+  type ServerConfigEntry,
+  type ServerTarget,
+} from "./connect.js";
+import { introspect } from "./introspect.js";
+import { check } from "./check.js";
+
+const HELP = `mcp-tada: gql.tada for MCP - typed tool calls derived from a live server's tools/list
+
+Usage:
+  mcp-tada introspect [target flags] [--out <path>] [--name <TypeName>] [--json] [--verbose]
+  mcp-tada check [target flags] --against <path>
+  mcp-tada --help
+  mcp-tada --version
+
+Target flags (one of):
+  --command "node server.js"     stdio server, whitespace-split like --stdio
+  --stdio "npx -y @modelcontextprotocol/server-filesystem /tmp"
+  --arg <value>                  extra stdio arg, repeatable, appended after --command/--stdio
+  --env KEY=VALUE                stdio env var, repeatable, merged over the inherited environment
+  --url https://example.com/mcp  HTTP server (StreamableHTTP, falling back to SSE on 4xx)
+  --header "Authorization: Bearer x"   HTTP header, repeatable
+  --config <path>                mcp-tada.config.json, or a Claude/Cursor mcpServers file;
+                                  with no other target flags, introspects every configured server
+                                  (or just [alias] if given as a positional argument)
+
+See docs/cli.md for the config file format and more examples.`;
+
+interface TargetFlagValues {
+  command?: string;
+  stdio?: string;
+  arg?: string[];
+  env?: string[];
+  url?: string;
+  header?: string[];
+  config?: string;
+}
+
+const TARGET_OPTIONS = {
+  command: { type: "string" },
+  stdio: { type: "string" },
+  arg: { type: "string", multiple: true },
+  env: { type: "string", multiple: true },
+  url: { type: "string" },
+  header: { type: "string", multiple: true },
+  config: { type: "string" },
+} as const;
+
+function targetFromFlags(values: TargetFlagValues): ServerTarget | undefined {
+  if (!values.command && !values.stdio && !values.url) return undefined;
+  const target: ServerTarget = {};
+  const base = values.stdio ?? values.command;
+  if (base) {
+    const [command, ...baseArgs] = splitCommandLine(base);
+    if (command) target.command = command;
+    const args = [...baseArgs, ...(values.arg ?? [])];
+    if (args.length > 0) target.args = args;
+  } else if (values.arg && values.arg.length > 0) {
+    target.args = values.arg;
+  }
+  if (values.env && values.env.length > 0) {
+    target.env = Object.fromEntries(values.env.map(parseEnvFlag));
+  }
+  if (values.url) target.url = values.url;
+  if (values.header && values.header.length > 0) {
+    target.headers = Object.fromEntries(values.header.map(parseHeaderFlag));
+  }
+  return target;
+}
+
+function configEntryToTarget(entry: ServerConfigEntry): ServerTarget {
+  const target: ServerTarget = {};
+  if (entry.command !== undefined) target.command = entry.command;
+  if (entry.args !== undefined) target.args = entry.args;
+  if (entry.env !== undefined) target.env = entry.env;
+  if (entry.url !== undefined) target.url = entry.url;
+  if (entry.headers !== undefined) target.headers = entry.headers;
+  return target;
+}
+
+async function runIntrospect(argv: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    options: {
+      ...TARGET_OPTIONS,
+      out: { type: "string" },
+      name: { type: "string" },
+      json: { type: "boolean" },
+      verbose: { type: "boolean" },
+      help: { type: "boolean" },
+    },
+    allowPositionals: true,
+  });
+  if (values.help) {
+    console.log(HELP);
+    return 0;
+  }
+
+  const explicitTarget = targetFromFlags(values);
+  if (explicitTarget) {
+    const result = await introspect({
+      target: explicitTarget,
+      ...(values.out !== undefined ? { out: values.out } : {}),
+      ...(values.name !== undefined ? { name: values.name } : {}),
+      ...(values.json !== undefined ? { json: values.json } : {}),
+      ...(values.verbose !== undefined ? { verbose: values.verbose } : {}),
+    });
+    if (values.json) console.log(result.text);
+    return 0;
+  }
+
+  const configPath =
+    values.config ?? (existsSync("mcp-tada.config.json") ? "mcp-tada.config.json" : undefined);
+  if (!configPath) {
+    console.error(
+      "mcp-tada introspect: no target specified. Pass --command/--stdio/--url, or --config.",
+    );
+    console.error(HELP);
+    return 1;
+  }
+  const config = loadConfig(configPath);
+  const aliasFilter = positionals[0];
+  const aliases = aliasFilter ? [aliasFilter] : Object.keys(config.servers);
+  if (aliasFilter && !config.servers[aliasFilter]) {
+    console.error(`mcp-tada introspect: no server "${aliasFilter}" in ${configPath}`);
+    return 1;
+  }
+  for (const alias of aliases) {
+    const entry = config.servers[alias];
+    if (!entry) continue;
+    const out =
+      values.out ?? entry.output ?? `${alias}.introspection.${values.json ? "json" : "d.ts"}`;
+    console.error(`mcp-tada introspect: ${alias}`);
+    const result = await introspect({
+      target: configEntryToTarget(entry),
+      out,
+      ...(values.name !== undefined ? { name: values.name } : {}),
+      ...(values.json !== undefined ? { json: values.json } : {}),
+      ...(values.verbose !== undefined ? { verbose: values.verbose } : {}),
+    });
+    if (values.json) console.log(result.text);
+  }
+  return 0;
+}
+
+async function runCheck(argv: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    options: {
+      ...TARGET_OPTIONS,
+      against: { type: "string" },
+      help: { type: "boolean" },
+    },
+    allowPositionals: true,
+  });
+  if (values.help) {
+    console.log(HELP);
+    return 0;
+  }
+
+  const explicitTarget = targetFromFlags(values);
+  if (explicitTarget) {
+    if (!values.against) {
+      console.error("mcp-tada check: --against <path> is required");
+      return 1;
+    }
+    const { report, text } = await check({ target: explicitTarget, against: values.against });
+    process.stdout.write(text);
+    return report.identical ? 0 : 1;
+  }
+
+  const configPath =
+    values.config ?? (existsSync("mcp-tada.config.json") ? "mcp-tada.config.json" : undefined);
+  if (!configPath) {
+    console.error(
+      "mcp-tada check: no target specified. Pass --command/--stdio/--url, or --config.",
+    );
+    return 1;
+  }
+  const config = loadConfig(configPath);
+  const aliasFilter = positionals[0];
+  const aliases = aliasFilter ? [aliasFilter] : Object.keys(config.servers);
+  if (aliasFilter && !config.servers[aliasFilter]) {
+    console.error(`mcp-tada check: no server "${aliasFilter}" in ${configPath}`);
+    return 1;
+  }
+  let anyDiff = false;
+  for (const alias of aliases) {
+    const entry = config.servers[alias];
+    if (!entry) continue;
+    const against = values.against ?? entry.output;
+    if (!against) {
+      console.error(
+        `mcp-tada check: ${alias} has no "output" in ${configPath} and no --against was given`,
+      );
+      anyDiff = true;
+      continue;
+    }
+    const { report, text } = await check({ target: configEntryToTarget(entry), against });
+    process.stdout.write(text);
+    if (!report.identical) anyDiff = true;
+  }
+  return anyDiff ? 1 : 0;
+}
+
+function readVersion(): string {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const pkgPath = join(here, "..", "..", "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version?: string };
+    return pkg.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+async function main(argv: string[]): Promise<number> {
+  const [sub, ...rest] = argv;
+  if (!sub || sub === "--help" || sub === "-h") {
+    console.log(HELP);
+    return 0;
+  }
+  if (sub === "--version" || sub === "-v") {
+    console.log(readVersion());
+    return 0;
+  }
+  switch (sub) {
+    case "introspect":
+      return runIntrospect(rest);
+    case "check":
+      return runCheck(rest);
+    default:
+      console.error(`mcp-tada: unknown command "${sub}"`);
+      console.error(HELP);
+      return 1;
+  }
+}
+
+main(process.argv.slice(2))
+  .then((code) => {
+    process.exitCode = code;
+  })
+  .catch((err) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exitCode = 1;
+  });
