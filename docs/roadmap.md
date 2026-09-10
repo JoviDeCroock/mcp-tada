@@ -19,8 +19,17 @@ Shipped as `packages/mcp-tada-server`: `defineTool`/`defineTools` declare tools 
 
 ## Mapper coverage from the survey
 
-Add a fixture per surveyed server shape and snapshot-test the emitted types. Known gaps: `type` omitted around `properties`, `patternProperties`, `if` / `then` / `else`, `$ref` cycles deeper than eight hops.
+Add a fixture per surveyed server shape and snapshot-test the emitted types. Partially shipped:
+`type` omitted around `properties` is now mapped as an object (`src/schema.ts`, covered by
+`test/schema.test-d.ts`), and `type: [..., "null"]` unions each named type instead of only
+handling primitives. Still open: `patternProperties`, `if` / `then` / `else`, `$ref` cycles
+deeper than eight hops.
 
 ## Multi-server composition
 
 Shipped: `combineMcpTada` merges several typed clients into one, namespacing tool names by server alias (default separator `"__"`) so identically named tools on different servers no longer collide. See the `## API` section of the root README.md.
+
+## Follow-ups from the 2026-09-10 hardening pass
+
+- `mcp-tada-server` handler return types still use input-mode `FromSchema` for `outputSchema`; switch to `FromOutputSchema` from `mcp-tada` so handler return types match what clients see.
+- The JSON Schema validator in `packages/mcp-tada-server/src/validate.ts` covers the mapper's subset. Lift it into `mcp-tada` behind a `validated(client)` entry point so clients can opt into checking `structuredContent` at runtime.

@@ -14,9 +14,11 @@ describe("combineMcpTada", () => {
     const combined = combineMcpTada({ gh, fs });
 
     const r1 = await combined.callTool("gh__get-structured-content", { location: "Chicago" });
+    if (r1.isError) throw new Error("unexpected error");
     expectTypeOf(r1.structuredContent.temperature).toEqualTypeOf<number>();
 
     const r2 = await combined.callTool("fs__search", { query: "readme" });
+    if (r2.isError) throw new Error("unexpected error");
     expectTypeOf(r2.structuredContent.results).toEqualTypeOf<string[]>();
 
     // colliding tool name "echo" on both servers stays distinct once prefixed.
@@ -27,7 +29,8 @@ describe("combineMcpTada", () => {
   test("servers gives direct access to each underlying typed client", async () => {
     const combined = combineMcpTada({ gh, fs });
     const r = await combined.servers.gh.callTool("get-sum", { a: 1, b: 2 });
-    expectTypeOf(r.structuredContent).toEqualTypeOf<undefined>();
+    if (r.isError) throw new Error("unexpected error");
+    expectTypeOf(r.structuredContent).toEqualTypeOf<unknown>();
     expectTypeOf(combined.servers.fs).toEqualTypeOf<typeof fs>();
   });
 

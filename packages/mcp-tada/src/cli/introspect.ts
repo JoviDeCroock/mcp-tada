@@ -3,7 +3,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { connectClient, getNegotiatedProtocolVersion, type ServerTarget } from "./connect.js";
+import { listAllTools } from "../list.js";
+import {
+  connectClient,
+  getNegotiatedProtocolVersion,
+  withTimeoutWrapping,
+  type ServerTarget,
+} from "./connect.js";
 import type { IntrospectionData, ToolSnapshot } from "./snapshot.js";
 
 export interface IntrospectMeta {
@@ -33,16 +39,17 @@ export async function introspectTarget(
   try {
     const caps = client.getServerCapabilities();
     const version = client.getServerVersion();
-    const tools: Tool[] = [];
-    let cursor: string | undefined;
     let lastRaw: RawToolListResult | undefined;
-    do {
-      const params = cursor !== undefined ? { cursor } : undefined;
-      const result = (await client.listTools(params)) as RawToolListResult & { tools: Tool[] };
-      lastRaw = result;
-      tools.push(...result.tools);
-      cursor = result.nextCursor;
-    } while (cursor);
+    const listOptions = target.timeoutMs !== undefined ? { timeout: target.timeoutMs } : undefined;
+    const tools = await withTimeoutWrapping(target, transport, () =>
+      listAllTools<RawToolListResult & { tools: Tool[] }>(
+        (params) =>
+          client.listTools(params, listOptions) as Promise<RawToolListResult & { tools: Tool[] }>,
+        (page) => {
+          lastRaw = page;
+        },
+      ),
+    );
 
     // NOTE: getNegotiatedProtocolVersion() only tells us anything for the streamable HTTP
     // transport, which exposes it publicly; stdio/SSE don't expose the negotiated version
@@ -57,7 +64,13 @@ export async function introspectTarget(
     if (protocolVersion !== undefined) meta.protocolVersion = protocolVersion;
     return { tools, meta };
   } finally {
-    await client.close();
+    // withTimeoutWrapping already closed the transport on a timeout; a second close is a no-op
+    // in the happy path and best-effort (never fatal) if the transport is already gone.
+    try {
+      await client.close();
+    } catch {
+      // already closed, or closing failed after a prior error we're already propagating
+    }
   }
 }
 

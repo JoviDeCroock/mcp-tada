@@ -73,6 +73,20 @@ export function combineMcpTada<M extends Record<string, AnyTypedClient>, Sep ext
 ): CombinedClient<M, Sep> {
   const separator = (options?.separator ?? "__") as Sep;
 
+  if (separator === "") {
+    throw new Error("mcp-tada: combineMcpTada separator must not be empty");
+  }
+  for (const alias of Object.keys(clients)) {
+    if (alias === "") {
+      throw new Error("mcp-tada: combineMcpTada server alias must not be empty");
+    }
+    if (alias.includes(separator)) {
+      throw new Error(
+        `mcp-tada: combineMcpTada server alias "${alias}" must not contain the separator ${JSON.stringify(separator)}`,
+      );
+    }
+  }
+
   function split(name: string): { server: keyof M & string; tool: string } {
     const at = name.indexOf(separator);
     const server = at === -1 ? name : name.slice(0, at);
@@ -92,9 +106,11 @@ export function combineMcpTada<M extends Record<string, AnyTypedClient>, Sep ext
   }
 
   async function listTools(): Promise<Tool[]> {
+    // Each server's typed `listTools()` already pages through `nextCursor` (see `./list.ts`),
+    // so this only needs to fan out across servers and merge, not paginate itself.
     const lists = await Promise.all(
       Object.entries(clients).map(async ([alias, client]) => {
-        const { tools } = await client.listTools();
+        const tools = await client.listTools();
         return tools.map((tool) => ({ ...tool, name: `${alias}${separator}${tool.name}` }));
       }),
     );

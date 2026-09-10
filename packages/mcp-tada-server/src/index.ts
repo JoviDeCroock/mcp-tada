@@ -3,6 +3,7 @@ export {
   defineTools,
   isWrappedToolReturn,
   type AnyToolDefinition,
+  type DeepMutable,
   type IntrospectionOf,
   type StructuredToolReturn,
   type ToolDefinition,
@@ -10,5 +11,6 @@ export {
   type ToolHandler,
   type UnstructuredToolReturn,
 } from "./define.js";
-export { registerTools } from "./register.js";
+export { registerTools, type RegisterToolsOptions } from "./register.js";
+export { validate, type ValidationError } from "./validate.js";
 export type { FromSchema } from "mcp-tada";

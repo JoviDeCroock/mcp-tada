@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +6,7 @@ import type { ServerTarget } from "../src/cli/connect.js";
 import { introspect } from "../src/cli/introspect.js";
 import { check } from "../src/cli/check.js";
 import { parseDtsSnapshot, parseSnapshotText, detectFormat } from "../src/cli/snapshot.js";
+import { runIntrospectWith } from "../src/cli/main.js";
 
 const EVERYTHING_SERVER = "node_modules/@modelcontextprotocol/server-everything/dist/index.js";
 
@@ -157,4 +158,63 @@ export type demo = introspection;
   it("throws a helpful error when the marker is missing", () => {
     expect(() => parseDtsSnapshot("not a snapshot")).toThrow(/export type introspection/);
   });
+});
+
+describe("introspect --out with a config file", () => {
+  function writeConfig(servers: Record<string, unknown>): string {
+    const dir = mkdtempSync(join(tmpdir(), "mcp-tada-cli-config-"));
+    const path = join(dir, "mcp-tada.config.json");
+    writeFileSync(path, JSON.stringify({ servers }));
+    return path;
+  }
+
+  it("exits 1 instead of writing every server to the same --out file", async () => {
+    const config = writeConfig({
+      one: { command: "node", args: [EVERYTHING_SERVER] },
+      two: { command: "node", args: [EVERYTHING_SERVER] },
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const code = await runIntrospectWith({ config, out: "shared.d.ts" });
+      expect(code).toBe(1);
+      expect(errorSpy.mock.calls.flat().join("\n")).toMatch(/--out cannot be used with 2 servers/);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("allows --out when only one server is selected via the positional alias", async () => {
+    const config = writeConfig({
+      one: { command: "node", args: [EVERYTHING_SERVER] },
+      two: { command: "node", args: [EVERYTHING_SERVER] },
+    });
+    const out = tmpFile("one.d.ts");
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const code = await runIntrospectWith({ config, out, aliasFilter: "one" });
+      expect(code).toBe(0);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  }, 30_000);
+});
+
+describe("--timeout", () => {
+  // A stdio "server" that never speaks MCP: connectClient (and, for check, introspectTarget's
+  // tools/list) must time out instead of hanging.
+  const silentTarget: ServerTarget = {
+    command: "node",
+    args: ["-e", "setTimeout(() => {}, 5_000)"],
+    timeoutMs: 200,
+  };
+
+  it("introspect fails fast with a message naming the target", async () => {
+    await expect(introspect({ target: silentTarget, write: false })).rejects.toThrow(/timed out/);
+  }, 10_000);
+
+  it("check fails fast with a message naming the target", async () => {
+    const out = tmpFile("introspection.json");
+    writeFileSync(out, JSON.stringify({ tools: {} }));
+    await expect(check({ target: silentTarget, against: out })).rejects.toThrow(/timed out/);
+  }, 10_000);
 });

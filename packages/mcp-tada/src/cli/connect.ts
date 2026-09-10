@@ -8,7 +8,13 @@ import {
   StreamableHTTPError,
 } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport, SseError } from "@modelcontextprotocol/sdk/client/sse.js";
+import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
+
+/** Applied to connecting and to each `tools/list` request when no `--timeout` is given and the
+ * config file sets no `timeoutMs` for the server. */
+export const DEFAULT_TIMEOUT_MS = 30_000;
 
 /** Where to reach a single MCP server: stdio (command/args/env) or HTTP (url/headers). */
 export interface ServerTarget {
@@ -17,6 +23,10 @@ export interface ServerTarget {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  /** Timeout (ms) applied to connecting and to each `tools/list` request. Callers should default
+   * this to `DEFAULT_TIMEOUT_MS` when building a `ServerTarget`; `connectClient` does not apply
+   * its own default so that "unset" and "explicitly 30000" stay distinguishable upstream. */
+  timeoutMs?: number;
 }
 
 /** One entry of an mcp-tada config file's "servers" map (or a normalized mcpServers entry). */
@@ -80,6 +90,8 @@ export function loadConfig(path: string): McpTadaConfig {
         ? (entry["headers"] as Record<string, string>)
         : undefined;
     const output = typeof entry["output"] === "string" ? (entry["output"] as string) : undefined;
+    const timeoutMs =
+      typeof entry["timeoutMs"] === "number" ? (entry["timeoutMs"] as number) : undefined;
     const normalized: ServerConfigEntry = {};
     if (command !== undefined) normalized.command = command;
     if (args !== undefined) normalized.args = args;
@@ -87,6 +99,7 @@ export function loadConfig(path: string): McpTadaConfig {
     if (url !== undefined) normalized.url = url;
     if (headers !== undefined) normalized.headers = headers;
     if (output !== undefined) normalized.output = output;
+    if (timeoutMs !== undefined) normalized.timeoutMs = timeoutMs;
     servers[alias] = normalized;
   }
   return { servers };
@@ -112,7 +125,61 @@ export interface ConnectOptions {
   clientVersion?: string;
 }
 
-/** Build and connect an SDK Client for the given target, stdio or HTTP (with SSE fallback). */
+/** A short, human-readable name for a target, for error messages ("filesystem timed out..."). */
+export function describeTarget(target: ServerTarget): string {
+  if (target.url) return target.url;
+  if (target.command) return target.command;
+  return "target";
+}
+
+/** True for an `McpError` with code `RequestTimeout`, or a `DOMException`/`Error` produced by an
+ * aborted-on-timeout fetch (the streamable HTTP / SSE transports surface those as plain aborts
+ * rather than wrapping them in an `McpError`). */
+function isTimeoutError(err: unknown): boolean {
+  if (err instanceof McpError) return err.code === ErrorCode.RequestTimeout;
+  if (err instanceof Error) return err.name === "AbortError" || err.name === "TimeoutError";
+  return false;
+}
+
+/** Best-effort close; swallows errors since we're already handling a different failure. */
+async function closeQuietly(transport: Transport): Promise<void> {
+  try {
+    await transport.close();
+  } catch {
+    // already failing for another reason; nothing more to do here
+  }
+}
+
+/**
+ * Close a stdio transport whose handshake failed, and make sure the child is gone. The SDK's
+ * `close()` ends stdin and only escalates to SIGTERM after a 2s grace period; if the calling
+ * process exits before that (a CI step or a test runner tearing down), the child is orphaned and
+ * keeps any inherited stdio pipe open. A server that never completed the handshake has nothing to
+ * flush, so kill it outright once `close()` has had its chance.
+ */
+async function closeStdioHard(stdio: StdioClientTransport): Promise<void> {
+  const pid = stdio.pid;
+  await closeQuietly(stdio);
+  if (pid === null || pid === undefined) return;
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    // already exited
+  }
+}
+
+/** Wraps a connect/list failure so a timeout reads as a clear, target-naming error. */
+function wrapConnectError(err: unknown, target: ServerTarget): unknown {
+  if (isTimeoutError(err)) {
+    const ms = target.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    return new Error(`mcp-tada: connecting to "${describeTarget(target)}" timed out after ${ms}ms`);
+  }
+  return err;
+}
+
+/** Build and connect an SDK Client for the given target, stdio or HTTP (with SSE fallback).
+ * `target.timeoutMs` (when set) is applied to the connect handshake; on timeout the transport is
+ * closed and the rejection names the target. */
 export async function connectClient(
   target: ServerTarget,
   opts: ConnectOptions = {},
@@ -121,6 +188,8 @@ export async function connectClient(
     name: opts.clientName ?? "mcp-tada-cli",
     version: opts.clientVersion ?? "0.0.0",
   });
+  const requestOptions: RequestOptions | undefined =
+    target.timeoutMs !== undefined ? { timeout: target.timeoutMs } : undefined;
 
   if (target.url) {
     const url = new URL(target.url);
@@ -134,17 +203,25 @@ export async function connectClient(
       // The SDK's own StreamableHTTPClientTransport doesn't satisfy its Transport type under
       // exactOptionalPropertyTypes (sessionId is `string | undefined` vs `string`); cast at
       // this boundary rather than relaxing our own tsconfig.
-      await client.connect(streamable as unknown as Transport);
+      await client.connect(streamable as unknown as Transport, requestOptions);
       return { client, transport: streamable as unknown as Transport, kind: "streamable-http" };
     } catch (err) {
-      if (!isLikelyClientError(err)) throw err;
+      if (!isLikelyClientError(err)) {
+        await closeQuietly(streamable as unknown as Transport);
+        throw wrapConnectError(err, target);
+      }
       // Fall back to the deprecated SSE transport for older servers, per SDK guidance.
       const sse = new SSEClientTransport(url, {
         ...(hasHeaders ? { requestInit: { headers } } : {}),
         ...(hasHeaders ? { eventSourceInit: { fetch: fetchWithHeaders(headers) } } : {}),
       });
-      await client.connect(sse);
-      return { client, transport: sse, kind: "sse" };
+      try {
+        await client.connect(sse, requestOptions);
+        return { client, transport: sse, kind: "sse" };
+      } catch (err2) {
+        await closeQuietly(sse);
+        throw wrapConnectError(err2, target);
+      }
     }
   }
 
@@ -159,11 +236,35 @@ export async function connectClient(
       args,
       env: { ...process.env, ...target.env } as Record<string, string>,
     });
-    await client.connect(stdio);
-    return { client, transport: stdio, kind: "stdio" };
+    try {
+      await client.connect(stdio, requestOptions);
+      return { client, transport: stdio, kind: "stdio" };
+    } catch (err) {
+      await closeStdioHard(stdio);
+      throw wrapConnectError(err, target);
+    }
   }
 
   throw new Error("No target specified: pass --command/--stdio or --url (or --config)");
+}
+
+/** Wraps a `tools/list` failure the same way `connectClient` wraps a connect failure: a timeout
+ * closes the transport and rejects with a clear, target-naming error. */
+export async function withTimeoutWrapping<T>(
+  target: ServerTarget,
+  transport: Transport,
+  fn: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (isTimeoutError(err)) {
+      if (transport instanceof StdioClientTransport) await closeStdioHard(transport);
+      else await closeQuietly(transport);
+      throw wrapConnectError(err, target);
+    }
+    throw err;
+  }
 }
 
 function isLikelyClientError(err: unknown): boolean {

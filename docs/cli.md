@@ -65,6 +65,19 @@ mcp-tada introspect --url https://example.com/mcp --header "Authorization: Beare
 
 `--header` may be repeated. Header values are parsed as `Name: Value` (split on the first `:`).
 
+### Timeout
+
+```
+# fail fast instead of hanging on a slow or unresponsive server
+mcp-tada introspect --stdio "node server.js" --timeout 5000
+```
+
+`--timeout <ms>` applies to both connecting and each `tools/list` request, and defaults to
+`30000`. On timeout, the transport is closed and the command exits 1 with a message naming the
+target (the `--url` or `--command`/`--stdio` value, or the config alias). A server's `timeoutMs`
+in the config file (see below) sets its default; `--timeout` on the command line overrides it for
+every selected server.
+
 ### Output flags
 
 - `--out <path>` overrides the output path (default `introspection.d.ts` in the current
@@ -77,6 +90,10 @@ mcp-tada introspect --url https://example.com/mcp --header "Authorization: Beare
 - `--verbose` expands the warning summaries below into per-tool lists.
 - If the target's content is byte-identical to what's already on disk, mcp-tada does not
   rewrite the file and prints `unchanged: <path>` instead of `wrote: <path>`.
+- With `--config` and more than one server selected (no alias positional given, or a config with
+  more than one server), `--out` is rejected with a nonzero exit instead of letting every server
+  overwrite the same file. Either select a single alias, or give each server its own `output` in
+  the config.
 
 ### Warnings
 
@@ -138,7 +155,8 @@ server (or just one, if you pass its alias as a positional argument).
 
 `command` / `args` / `env` describe a stdio server; `url` / `headers` describe an HTTP server.
 `output` is where `introspect` writes that server's snapshot (and, for `check` run without
-`--against`, what it diffs against).
+`--against`, what it diffs against). `timeoutMs` (optional, default `30000`) sets that server's
+connect and `tools/list` timeout; a `--timeout` flag on the command line overrides it.
 
 mcp-tada also reads a Claude Desktop / Cursor style config, detected by an `mcpServers` block
 in place of `servers`:

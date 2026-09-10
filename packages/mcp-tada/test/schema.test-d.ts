@@ -1,5 +1,5 @@
 import { describe, expectTypeOf, test } from "vitest";
-import type { FromSchema } from "../src/schema.js";
+import type { FromOutputSchema, FromSchema } from "../src/schema.js";
 
 describe("FromSchema", () => {
   test("primitive types", () => {
@@ -184,5 +184,68 @@ describe("FromSchema", () => {
   test("unknown/empty schema", () => {
     expectTypeOf<FromSchema<Record<string, never>>>().toEqualTypeOf<unknown>();
     expectTypeOf<FromSchema<unknown>>().toEqualTypeOf<unknown>();
+  });
+
+  test("properties with no type is still treated as an object (type omitted in the wild)", () => {
+    type S = {
+      properties: { a: { type: "string" } };
+      required: ["a"];
+    };
+    expectTypeOf<FromSchema<S>>().toEqualTypeOf<{ a: string }>();
+
+    // @ts-expect-error b doesn't exist on this schema
+    expectTypeOf<FromSchema<S>>().toEqualTypeOf<{ a: string; b: number }>();
+  });
+
+  test('type: ["object", "null"] maps to the object shape unioned with null', () => {
+    type S = {
+      type: ["object", "null"];
+      properties: { a: { type: "string" } };
+      required: ["a"];
+    };
+    expectTypeOf<FromSchema<S>>().toEqualTypeOf<{ a: string } | null>();
+
+    // @ts-expect-error missing the null branch
+    expectTypeOf<FromSchema<S>>().toEqualTypeOf<{ a: string }>();
+  });
+
+  test('type: ["array", "null"] maps to the array shape unioned with null', () => {
+    type S = { type: ["array", "null"]; items: { type: "string" } };
+    expectTypeOf<FromSchema<S>>().toEqualTypeOf<string[] | null>();
+  });
+});
+
+describe("FromOutputSchema", () => {
+  test("objects with additionalProperties unspecified stay open, unlike FromSchema", () => {
+    type S = {
+      type: "object";
+      properties: { a: { type: "string" } };
+      required: ["a"];
+    };
+    type Out = FromOutputSchema<S>;
+
+    // Reading an undeclared key is `unknown`, not a compile error.
+    const value = null as unknown as Out;
+    expectTypeOf(value["extra"]).toEqualTypeOf<unknown>();
+
+    // The declared key still keeps its real type.
+    expectTypeOf(value.a).toEqualTypeOf<string>();
+
+    // FromSchema (input mode) stays closed: excess property is still an error.
+    const closed: FromSchema<S> = { a: "hi" };
+    // @ts-expect-error input mode stays closed to declared properties
+    const bad: FromSchema<S> = { a: "hi", extra: 1 };
+    void closed;
+    void bad;
+  });
+
+  test("additionalProperties: false still closes the object in output mode", () => {
+    type S = {
+      type: "object";
+      properties: { a: { type: "string" } };
+      required: ["a"];
+      additionalProperties: false;
+    };
+    expectTypeOf<FromOutputSchema<S>>().toEqualTypeOf<{ a: string }>();
   });
 });

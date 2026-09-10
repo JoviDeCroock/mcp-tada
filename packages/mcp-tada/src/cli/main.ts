@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  DEFAULT_TIMEOUT_MS,
   loadConfig,
   parseEnvFlag,
   parseHeaderFlag,
@@ -33,6 +34,11 @@ Target flags (one of):
   --config <path>                mcp-tada.config.json, or a Claude/Cursor mcpServers file;
                                   with no other target flags, introspects every configured server
                                   (or just [alias] if given as a positional argument)
+  --timeout <ms>                 connect and tools/list timeout, default 30000 (overrides a
+                                  server's "timeoutMs" in --config)
+
+With --config and more than one server selected, --out is rejected: it would make every server
+overwrite the same file. Use each server's "output" in the config, or select one alias.
 
 See docs/cli.md for the config file format and more examples.`;
 
@@ -44,6 +50,7 @@ interface TargetFlagValues {
   url?: string;
   header?: string[];
   config?: string;
+  timeout?: string;
 }
 
 const TARGET_OPTIONS = {
@@ -54,7 +61,20 @@ const TARGET_OPTIONS = {
   url: { type: "string" },
   header: { type: "string", multiple: true },
   config: { type: "string" },
+  timeout: { type: "string" },
 } as const;
+
+/** Parses `--timeout`, throwing a plain `Error` (no stack noise) on a non-positive-integer value. */
+function parseTimeoutFlag(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const ms = Number(value);
+  if (!Number.isFinite(ms) || ms <= 0) {
+    throw new Error(
+      `Invalid --timeout value ${JSON.stringify(value)}, expected a positive number of milliseconds`,
+    );
+  }
+  return ms;
+}
 
 function targetFromFlags(values: TargetFlagValues): ServerTarget | undefined {
   if (!values.command && !values.stdio && !values.url) return undefined;
@@ -75,35 +95,48 @@ function targetFromFlags(values: TargetFlagValues): ServerTarget | undefined {
   if (values.header && values.header.length > 0) {
     target.headers = Object.fromEntries(values.header.map(parseHeaderFlag));
   }
+  target.timeoutMs = parseTimeoutFlag(values.timeout) ?? DEFAULT_TIMEOUT_MS;
   return target;
 }
 
-function configEntryToTarget(entry: ServerConfigEntry): ServerTarget {
+function configEntryToTarget(
+  entry: ServerConfigEntry,
+  timeoutFlagMs: number | undefined,
+): ServerTarget {
   const target: ServerTarget = {};
   if (entry.command !== undefined) target.command = entry.command;
   if (entry.args !== undefined) target.args = entry.args;
   if (entry.env !== undefined) target.env = entry.env;
   if (entry.url !== undefined) target.url = entry.url;
   if (entry.headers !== undefined) target.headers = entry.headers;
+  target.timeoutMs = timeoutFlagMs ?? entry.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   return target;
 }
 
-async function runIntrospect(argv: string[]): Promise<number> {
-  const { values, positionals } = parseArgs({
-    args: argv,
-    options: {
-      ...TARGET_OPTIONS,
-      out: { type: "string" },
-      name: { type: "string" },
-      json: { type: "boolean" },
-      verbose: { type: "boolean" },
-      help: { type: "boolean" },
-    },
-    allowPositionals: true,
-  });
+/** Parsed `mcp-tada introspect` flags, independent of `node:util`'s `parseArgs` value shape, so
+ * this can be driven directly from tests without spawning the CLI. */
+export interface RunIntrospectArgs extends TargetFlagValues {
+  out?: string;
+  name?: string;
+  json?: boolean;
+  verbose?: boolean;
+  help?: boolean;
+  aliasFilter?: string | undefined;
+}
+
+/** Core of `mcp-tada introspect`, factored out of argv parsing so it's directly testable. */
+export async function runIntrospectWith(values: RunIntrospectArgs): Promise<number> {
   if (values.help) {
     console.log(HELP);
     return 0;
+  }
+
+  let timeoutMs: number | undefined;
+  try {
+    timeoutMs = parseTimeoutFlag(values.timeout);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    return 1;
   }
 
   const explicitTarget = targetFromFlags(values);
@@ -129,10 +162,18 @@ async function runIntrospect(argv: string[]): Promise<number> {
     return 1;
   }
   const config = loadConfig(configPath);
-  const aliasFilter = positionals[0];
+  const aliasFilter = values.aliasFilter;
   const aliases = aliasFilter ? [aliasFilter] : Object.keys(config.servers);
   if (aliasFilter && !config.servers[aliasFilter]) {
     console.error(`mcp-tada introspect: no server "${aliasFilter}" in ${configPath}`);
+    return 1;
+  }
+  if (values.out !== undefined && aliases.length > 1) {
+    console.error(
+      `mcp-tada introspect: --out cannot be used with ${aliases.length} servers selected from ${configPath} ` +
+        `(every server would overwrite the same file). Pass a server alias to select one, or rely on each ` +
+        `server's "output" in the config.`,
+    );
     return 1;
   }
   for (const alias of aliases) {
@@ -142,7 +183,7 @@ async function runIntrospect(argv: string[]): Promise<number> {
       values.out ?? entry.output ?? `${alias}.introspection.${values.json ? "json" : "d.ts"}`;
     console.error(`mcp-tada introspect: ${alias}`);
     const result = await introspect({
-      target: configEntryToTarget(entry),
+      target: configEntryToTarget(entry, timeoutMs),
       out,
       ...(values.name !== undefined ? { name: values.name } : {}),
       ...(values.json !== undefined ? { json: values.json } : {}),
@@ -153,19 +194,41 @@ async function runIntrospect(argv: string[]): Promise<number> {
   return 0;
 }
 
-async function runCheck(argv: string[]): Promise<number> {
+async function runIntrospect(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv,
     options: {
       ...TARGET_OPTIONS,
-      against: { type: "string" },
+      out: { type: "string" },
+      name: { type: "string" },
+      json: { type: "boolean" },
+      verbose: { type: "boolean" },
       help: { type: "boolean" },
     },
     allowPositionals: true,
   });
+  return runIntrospectWith({ ...values, aliasFilter: positionals[0] });
+}
+
+export interface RunCheckArgs extends TargetFlagValues {
+  against?: string;
+  help?: boolean;
+  aliasFilter?: string | undefined;
+}
+
+/** Core of `mcp-tada check`, factored out of argv parsing so it's directly testable. */
+export async function runCheckWith(values: RunCheckArgs): Promise<number> {
   if (values.help) {
     console.log(HELP);
     return 0;
+  }
+
+  let timeoutMs: number | undefined;
+  try {
+    timeoutMs = parseTimeoutFlag(values.timeout);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    return 1;
   }
 
   const explicitTarget = targetFromFlags(values);
@@ -188,7 +251,7 @@ async function runCheck(argv: string[]): Promise<number> {
     return 1;
   }
   const config = loadConfig(configPath);
-  const aliasFilter = positionals[0];
+  const aliasFilter = values.aliasFilter;
   const aliases = aliasFilter ? [aliasFilter] : Object.keys(config.servers);
   if (aliasFilter && !config.servers[aliasFilter]) {
     console.error(`mcp-tada check: no server "${aliasFilter}" in ${configPath}`);
@@ -206,11 +269,27 @@ async function runCheck(argv: string[]): Promise<number> {
       anyDiff = true;
       continue;
     }
-    const { report, text } = await check({ target: configEntryToTarget(entry), against });
+    const { report, text } = await check({
+      target: configEntryToTarget(entry, timeoutMs),
+      against,
+    });
     process.stdout.write(text);
     if (!report.identical) anyDiff = true;
   }
   return anyDiff ? 1 : 0;
+}
+
+async function runCheck(argv: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    options: {
+      ...TARGET_OPTIONS,
+      against: { type: "string" },
+      help: { type: "boolean" },
+    },
+    allowPositionals: true,
+  });
+  return runCheckWith({ ...values, aliasFilter: positionals[0] });
 }
 
 function readVersion(): string {

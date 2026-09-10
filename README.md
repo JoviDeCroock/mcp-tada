@@ -28,8 +28,10 @@ const fs = initMcpTada<introspection>().typed(client);
 
 const result = await fs.callTool("read_file", { path: "README.md" });
 //                                ^ union of tool names   ^ inferred from inputSchema
-result.structuredContent;
-//     ^ typed from outputSchema when the server declares one, otherwise undefined
+if (!result.isError) {
+  result.structuredContent;
+  //     ^ typed from outputSchema when the server declares one, otherwise unknown
+}
 ```
 
 Tools whose input schema has no required properties can be called without an arguments object.
@@ -57,11 +59,11 @@ mcp-tada introspect --url https://example.com/mcp --header "Authorization: Beare
 mcp-tada introspect --stdio "node server.js" --json --out tools.json
 ```
 
-Flags: `--stdio` or `--command` plus repeatable `--arg` and `--env KEY=VAL`; `--url` plus repeatable `--header`; `--out`, `--name <TypeName>` for an extra exported alias, `--json`, `--verbose`. The file is left untouched when the output is byte-identical. Warnings are printed for tools without `outputSchema` and for schemas that `$ref` an external URI.
+Flags: `--stdio` or `--command` plus repeatable `--arg` and `--env KEY=VAL`; `--url` plus repeatable `--header`; `--out`, `--name <TypeName>` for an extra exported alias, `--json`, `--verbose`, `--timeout <ms>` (default 30000, applied to connecting and to each `tools/list` request; also settable per server as `timeoutMs` in the config file). The file is left untouched when the output is byte-identical. Warnings are printed for tools without `outputSchema` and for schemas that `$ref` an external URI. With `--config` and more than one server selected, `--out` is rejected (every server would overwrite the same file) - give each server its own `output` in the config, or select a single alias.
 
 ### `mcp-tada check`
 
-Diffs a live server against a snapshot and exits 1 on any drift: added or removed tools, changed input schemas, changed or newly present output schemas. Run it in CI.
+Diffs a live server against a snapshot and exits 1 on any drift: added or removed tools, changed input schemas, changed or newly present output schemas. Run it in CI. Accepts the same target flags as `introspect`, including `--timeout <ms>`.
 
 ```sh
 mcp-tada check --stdio "npx -y @modelcontextprotocol/server-filesystem ." --against src/fs.introspection.d.ts
@@ -95,10 +97,12 @@ Full reference in `docs/cli.md`.
 ## API
 
 - `initMcpTada<I>()` returns `{ typed(client) }`. The typed client exposes `callTool(name, args?, options?)`, `listTools()`, and the underlying `client`.
-- `ToolNames<I>`, `ToolArgs<I, N>`, `ToolOutput<I, N>`, `ToolResult<I, N>` for naming the derived types in your own signatures.
-- `FromSchema<S, Root = S>` if you want the mapper on its own.
+- `callTool`'s result is a union on `isError`: when `isError` is `false` or absent, `structuredContent` is typed from the tool's `outputSchema` (or `unknown` if it has none - the spec allows a server to send one anyway); when `isError` is `true`, `structuredContent` is optional/`unknown` and `content` is still present. Narrow on `result.isError` before reading `structuredContent`.
+- `listTools()` on both the typed client and the combined client pages through `nextCursor` and returns every tool, not just the first page. The raw single-page SDK call is still reachable as `client.listTools(...)` on the typed client's underlying `client`.
+- `ToolNames<I>`, `ToolArgs<I, N>`, `ToolOutput<I, N>`, `ToolResult<I, N>` for naming the derived types in your own signatures. `ToolOutput<I, N>` is the success-case `structuredContent` type.
+- `FromSchema<S, Root = S>` maps an `inputSchema`-shaped JSON Schema to its TS type; objects are closed to their declared `properties` unless `additionalProperties` says otherwise. `FromOutputSchema<S, Root = S>` maps an `outputSchema` the same way, except objects with no `additionalProperties` stay open (`& { [k: string]: unknown }`), since a server's structured output may legitimately include fields it didn't declare.
 - `Introspection` describes the snapshot shape: `{ tools: Record<string, { inputSchema: unknown; outputSchema?: unknown }> }`.
-- `combineMcpTada(clients, options?)` merges several typed clients into one, prefixing each tool name with its alias (default separator `"__"`) so same-named tools on different servers never collide.
+- `combineMcpTada(clients, options?)` merges several typed clients into one, prefixing each tool name with its alias (default separator `"__"`) so same-named tools on different servers never collide. Throws at construction if an alias is empty or contains the separator, or if the separator is empty.
 
 ```ts
 const fs = initMcpTada<FsIntrospection>().typed(fsClient);

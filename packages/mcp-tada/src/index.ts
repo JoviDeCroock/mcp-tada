@@ -1,11 +1,14 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { FromSchema } from "./schema.js";
+import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import { listAllTools } from "./list.js";
+import type { FromOutputSchema, FromSchema } from "./schema.js";
 
-export type { FromSchema } from "./schema.js";
+export type { FromOutputSchema, FromSchema } from "./schema.js";
 export { combineMcpTada } from "./combine.js";
 export type { AnyTypedClient, CombinedClient, CombinedIntrospection } from "./combine.js";
+export { listAllTools } from "./list.js";
+export type { ListToolsFn, ListToolsResultLike } from "./list.js";
 
 /**
  * Shape of a generated introspection snapshot: a name-keyed map of tools, each carrying
@@ -24,23 +27,39 @@ export type ToolArgs<I extends Introspection, N extends ToolNames<I>> = FromSche
   I["tools"][N]["inputSchema"]
 >;
 
-export type ToolOutput<I extends Introspection, N extends ToolNames<I>> = I["tools"][N] extends {
-  outputSchema: infer S;
-}
-  ? FromSchema<S>
-  : undefined;
+// The type of `structuredContent` on a *successful* call: typed from `outputSchema` (in output
+// mode, so undeclared-but-present fields read as `unknown` instead of erroring) when the tool
+// declares one, or `unknown` when it doesn't -- the spec allows a server to send
+// `structuredContent` even without a declared `outputSchema`, so `undefined` would be a lie.
+type StructuredContentOf<T extends { outputSchema?: unknown }> = T extends { outputSchema: infer S }
+  ? FromOutputSchema<S>
+  : unknown;
+
+/** The success-case type of a tool's `structuredContent`, i.e. what `result.structuredContent`
+ * is typed as once `result.isError` has been narrowed away. */
+export type ToolOutput<I extends Introspection, N extends ToolNames<I>> = StructuredContentOf<
+  I["tools"][N]
+>;
 
 /**
- * `CallToolResult` narrowed so `structuredContent` reflects the tool's `outputSchema`
- * (or is `undefined` when the tool has none), while `content`, `isError` and `_meta`
- * stay as typed by the SDK.
+ * `CallToolResult` narrowed on `isError` so `structuredContent` reflects reality:
+ * - `isError: true` -> `structuredContent` is optional/`unknown` (an error result may or may not
+ *   carry one; a server should not be relied on to shape it like a success result), `content`
+ *   stays present.
+ * - `isError` `false` or absent (a successful call) -> `structuredContent` is typed from the
+ *   tool's `outputSchema` (or `unknown` when the tool declares none).
+ *
+ * `content`, `_meta` and the rest of `CallToolResult` stay as typed by the SDK in both branches.
  */
-export type TypedCallToolResult<T extends { outputSchema?: unknown }> = Omit<
-  CallToolResult,
-  "structuredContent"
-> & {
-  structuredContent: T extends { outputSchema: infer S } ? FromSchema<S> : undefined;
-};
+export type TypedCallToolResult<T extends { outputSchema?: unknown }> =
+  | (Omit<CallToolResult, "structuredContent" | "isError"> & {
+      isError: true;
+      structuredContent?: unknown;
+    })
+  | (Omit<CallToolResult, "structuredContent" | "isError"> & {
+      isError?: false;
+      structuredContent: StructuredContentOf<T>;
+    });
 
 export type ToolResult<I extends Introspection, N extends ToolNames<I>> = TypedCallToolResult<
   I["tools"][N]
@@ -64,7 +83,9 @@ export type TypedClient<I extends Introspection> = {
     name: N,
     ...rest: CallToolArgs<I["tools"][N]["inputSchema"]>
   ): Promise<ToolResult<I, N>>;
-  listTools: Client["listTools"];
+  /** Every tool from every server page, following `nextCursor` until exhausted. For the raw,
+   * single-page SDK call, use `client.listTools(...)` directly. */
+  listTools(): Promise<Tool[]>;
   client: Client;
 };
 
@@ -80,7 +101,7 @@ export function initMcpTada<I extends Introspection>() {
     typed(client: Client): TypedClient<I> {
       return {
         client,
-        listTools: client.listTools.bind(client),
+        listTools: () => listAllTools(client.listTools.bind(client)),
         async callTool<N extends ToolNames<I>>(
           name: N,
           ...rest: CallToolArgs<I["tools"][N]["inputSchema"]>

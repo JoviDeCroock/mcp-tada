@@ -95,3 +95,27 @@ if (!serverAvailable) {
     it.skip("server-everything binary not found, skipping runtime tests", () => {});
   });
 }
+
+describe("combineMcpTada validation", () => {
+  const stub = { listTools: async () => ({ tools: [] }), callTool: async () => ({ content: [] }) };
+
+  it("throws for an empty alias", () => {
+    expect(() => combineMcpTada({ "": stub } as never)).toThrow(/alias must not be empty/);
+  });
+
+  it("throws when an alias contains the separator", () => {
+    expect(() => combineMcpTada({ a__b: stub } as never)).toThrow(/must not contain the separator/);
+  });
+
+  it("throws when an alias contains a custom separator", () => {
+    expect(() => combineMcpTada({ "a.b": stub } as never, { separator: "." })).toThrow(
+      /must not contain the separator/,
+    );
+  });
+
+  it("throws for an empty separator", () => {
+    expect(() => combineMcpTada({ a: stub } as never, { separator: "" })).toThrow(
+      /separator must not be empty/,
+    );
+  });
+});

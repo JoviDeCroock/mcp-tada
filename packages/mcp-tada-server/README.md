@@ -46,8 +46,39 @@ result.structuredContent.total; // typed as number
 
 The SDK's high-level `McpServer.registerTool` only accepts Zod (or Standard Schema) input, not raw
 JSON Schema, so it cannot emit our schemas verbatim. `registerTools` installs the low-level
-`tools/list`/`tools/call` request handlers directly instead. Because of that, call it at most once
-per `McpServer`, and avoid also calling `server.registerTool`/`server.tool` on the same instance.
+`tools/list`/`tools/call` request handlers directly instead, on the low-level server (`server.server`
+when given an `McpServer`, or `server` itself when given a plain low-level `Server`). Because of
+that, when given an `McpServer`, call it at most once per instance, and avoid also calling
+`server.registerTool`/`server.tool` on the same instance, since the last handler installed wins.
+That caveat does not apply to a plain `Server`, which has no such high-level API to conflict with.
+
+Call `registerTools` before `connect()`-ing the server to a transport. The SDK rejects registering
+capabilities after a transport is attached, and `registerTools` rethrows that as a clearer error
+telling you tools must be registered first.
+
+## Validation and error semantics
+
+`registerTools` always validates incoming `arguments` against a tool's `inputSchema` before
+invoking its handler, using a small built-in JSON Schema validator (see `src/validate.ts`) that
+covers the same subset `mcp-tada`'s type-level mapper supports. On a mismatch, the handler is never
+called: the result carries `isError: true` and a text content block listing the errors, per the
+MCP spec's "invalid input" execution error, rather than a thrown protocol error.
+
+A handler that throws is caught the same way: the result carries `isError: true` and the error's
+message as a text block, not a JSON-RPC protocol error. The one case that remains a protocol-level
+error is calling an unknown tool name, per the spec.
+
+Pass `{ validateOutput: true }` as a third argument to also validate a handler's
+`structuredContent` against `outputSchema` before it goes on the wire:
+
+```ts
+registerTools(server, tools, { validateOutput: true });
+```
+
+This defaults to `false`, since your handler's return already carries the type-level guarantee
+from `outputSchema`; enable it to catch a value that type-checks against a widened type (`any`,
+manual casts) but doesn't actually satisfy the schema. A mismatch returns `isError: true` with the
+validation errors, the same as an input mismatch.
 
 See the root `README.md` for `mcp-tada` itself, and `AGENTS.md` for the introspection contract
 shared between `mcp-tada` and this package.

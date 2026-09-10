@@ -38,10 +38,32 @@ describe.runIf(serverAvailable)("typed client (runtime, server-everything)", () 
     const mcp = initMcpTada<introspection>().typed(client);
     const result = await mcp.callTool("get-structured-content", { location: "Chicago" });
     expect(result.isError).not.toBe(true);
+    if (result.isError) throw new Error("unexpected error");
     expect(result.structuredContent).toBeDefined();
-    expect(typeof result.structuredContent?.temperature).toBe("number");
-    expect(typeof result.structuredContent?.conditions).toBe("string");
-    expect(typeof result.structuredContent?.humidity).toBe("number");
+    expect(typeof result.structuredContent.temperature).toBe("number");
+    expect(typeof result.structuredContent.conditions).toBe("string");
+    expect(typeof result.structuredContent.humidity).toBe("number");
+  });
+});
+
+// server-everything has no tool that returns a tool-level `isError: true` result (it always
+// throws a protocol error instead), so exercise that branch with a stub client per AGENTS.md's
+// zero-runtime promise: this only needs `callTool`/`listTools` to look like the SDK's `Client`.
+describe("typed client (isError result, stub client)", () => {
+  it("keeps content and an optional structuredContent on an error result", async () => {
+    const errorResult = {
+      isError: true,
+      content: [{ type: "text", text: "boom" }],
+    };
+    const stub = {
+      listTools: async () => ({ tools: [] }),
+      callTool: async () => errorResult,
+    };
+    const mcp = initMcpTada<introspection>().typed(stub as never);
+    const result = await mcp.callTool("get-structured-content", { location: "Chicago" });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
+    expect(result.content).toEqual(errorResult.content);
   });
 });
 
