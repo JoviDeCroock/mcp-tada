@@ -211,8 +211,10 @@ export function initMcpTada<I extends Introspection>() {
         ...rest: CallToolArgs<I["tools"][N]["inputSchema"]>
       ): Promise<ToolResult<I, N>> {
         const [args, options] = rest;
+        // An omitted `args` goes on the wire as `{}`: the SDK's `McpServer` validates
+        // `arguments` against the tool's schema and rejects a missing object outright.
         const result = await client.callTool(
-          { name, arguments: args as Record<string, unknown> },
+          { name, arguments: (args ?? {}) as Record<string, unknown> },
           undefined,
           options,
         );

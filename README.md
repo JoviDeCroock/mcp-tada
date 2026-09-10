@@ -189,6 +189,7 @@ pnpm --filter @mcp-tada/example-deepwiki start
 ```sh
 pnpm install
 pnpm run verify   # format, lint, build, typecheck, test
+pnpm test:e2e     # against real servers over the network, see e2e/README.md
 ```
 
 See `AGENTS.md` for contributor conventions and `.changeset/` for release notes.

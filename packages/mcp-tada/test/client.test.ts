@@ -103,11 +103,15 @@ describe("tools namespace (stub client)", () => {
     expect(calls).toEqual([{ params: { name: "echo", arguments: { message: "hi" } }, options }]);
   });
 
-  it("forwards a call with no args", async () => {
+  it("forwards a call with no args as an empty arguments object", async () => {
+    // The reference servers reject a missing `arguments` ("expected object, received undefined"),
+    // so an omitted args must not be forwarded as `undefined`.
     const { calls, mcp } = stubClient();
     await mcp.tools["get-env"]();
+    await mcp.callTool("get-env");
     expect(calls).toEqual([
-      { params: { name: "get-env", arguments: undefined }, options: undefined },
+      { params: { name: "get-env", arguments: {} }, options: undefined },
+      { params: { name: "get-env", arguments: {} }, options: undefined },
     ]);
   });
 

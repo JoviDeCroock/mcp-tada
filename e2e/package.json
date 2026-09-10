@@ -1,0 +1,24 @@
+{
+  "name": "@mcp-tada/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:e2e": "vitest run",
+    "introspect": "mcp-tada introspect --config mcp-tada.config.json",
+    "check": "mcp-tada check --config mcp-tada.config.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "mcp-tada": "workspace:*",
+    "mcp-tada-server": "workspace:*"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/server-filesystem": "2026.8.31",
+    "@modelcontextprotocol/server-memory": "2026.8.31",
+    "@types/node": "^26.5.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  }
+}
