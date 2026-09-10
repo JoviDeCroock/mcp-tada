@@ -33,3 +33,12 @@ Shipped: `combineMcpTada` merges several typed clients into one, namespacing too
 
 - `mcp-tada-server` handler return types still use input-mode `FromSchema` for `outputSchema`; switch to `FromOutputSchema` from `mcp-tada` so handler return types match what clients see.
 - The JSON Schema validator in `packages/mcp-tada-server/src/validate.ts` covers the mapper's subset. Lift it into `mcp-tada` behind a `validated(client)` entry point so clients can opt into checking `structuredContent` at runtime.
+
+## Release setup (one-time, manual)
+
+Provenance-based publishing mirrors pracht. Before the first release on `main`:
+
+1. Create the `npm` environment in the GitHub repository settings.
+2. Publish `mcp-tada@0.1.0` and `mcp-tada-server@0.1.0` once by hand so the package pages exist.
+3. On npmjs.com, for each package, add a trusted publisher: repository `JoviDeCroock/mcp-tada`, workflow `release.yml`, environment `npm`.
+4. After that, `release.yml` stages every unpublished version with `pnpm stage publish --provenance` under OIDC and prints the stage ids; approve them with `npm stage approve <id>`.
