@@ -30,6 +30,28 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
+  e2e:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.30.0
+        version: 1.30.0(zod@4.5.4)
+      mcp-tada:
+        specifier: workspace:*
+        version: link:../packages/mcp-tada
+      mcp-tada-server:
+        specifier: workspace:*
+        version: link:../packages/mcp-tada-server
+    devDependencies:
+      '@types/node':
+        specifier: ^26.5.0
+        version: 26.5.0
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.0
+        version: 5.0.0(@types/node@26.5.0)(vite@8.2.2(@types/node@26.5.0)(yaml@2.9.0))
+
   examples/code-mode:
     dependencies:
       '@anthropic-ai/sdk':

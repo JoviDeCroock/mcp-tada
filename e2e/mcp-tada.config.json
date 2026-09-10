@@ -1,0 +1,26 @@
+{
+  "servers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "output": "snapshots/filesystem.introspection.d.ts"
+    },
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"],
+      "output": "snapshots/memory.introspection.d.ts"
+    },
+    "deepwiki": {
+      "url": "https://mcp.deepwiki.com/mcp",
+      "output": "snapshots/deepwiki.introspection.d.ts"
+    },
+    "cloudflare": {
+      "url": "https://docs.mcp.cloudflare.com/mcp",
+      "output": "snapshots/cloudflare.introspection.d.ts"
+    },
+    "context7": {
+      "url": "https://mcp.context7.com/mcp",
+      "output": "snapshots/context7.introspection.d.ts"
+    }
+  }
+}
