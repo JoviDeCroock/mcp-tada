@@ -5,7 +5,8 @@
 // version as unpublished, so a naive check would stage it again on the next push to main and then
 // fail on the `name@version` git tag and GitHub release the first run already created. The tag is
 // therefore the marker for "staged, awaiting approval": if it exists on the remote, leave the
-// version alone.
+// version alone. If a stage is abandoned instead of approved, delete that tag (and its GitHub
+// release) to let the next push to main stage the version again.
 import { spawnSync } from "node:child_process";
 
 export function releaseTagName(name, version) {
@@ -22,7 +23,9 @@ export async function hasRemoteReleaseTag(name, version) {
 
   if (repo && token) {
     const response = await fetch(
-      `https://api.github.com/repos/${repo}/git/ref/tags/${encodeURIComponent(tag)}`,
+      // Encode each path segment separately: a scoped package tag (`@scope/name@1.0.0`) keeps
+      // its `/`, which the ref endpoint expects literally.
+      `https://api.github.com/repos/${repo}/git/ref/tags/${tag.split("/").map(encodeURIComponent).join("/")}`,
       {
         headers: {
           accept: "application/vnd.github+json",
