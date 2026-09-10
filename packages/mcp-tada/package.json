@@ -60,7 +60,6 @@
     "model-context-protocol",
     "typescript",
     "json-schema",
-    "typed",
-    "gql.tada"
+    "typed"
   ]
 }
