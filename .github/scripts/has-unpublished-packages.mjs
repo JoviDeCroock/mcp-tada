@@ -1,6 +1,7 @@
 import { appendFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { hasRemoteReleaseTag, releaseTagName } from "./release-tags.mjs";
 
 const ignoredDirectories = new Set([".git", "dist", "node_modules"]);
 
@@ -51,10 +52,12 @@ async function main() {
   let hasUnpublished = false;
 
   for (const pkg of packages) {
-    const isPublished = await hasPublishedVersion(pkg);
-
-    if (isPublished) {
+    if (await hasPublishedVersion(pkg)) {
       console.log(`${pkg.name}@${pkg.version} is already published`);
+    } else if (await hasRemoteReleaseTag(pkg.name, pkg.version)) {
+      console.log(
+        `${pkg.name}@${pkg.version} is staged and awaiting \`npm stage approve\` (tag ${releaseTagName(pkg.name, pkg.version)} exists)`,
+      );
     } else {
       console.log(`${pkg.name}@${pkg.version} is not published yet`);
       hasUnpublished = true;

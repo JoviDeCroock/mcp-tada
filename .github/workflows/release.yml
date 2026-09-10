@@ -48,10 +48,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # A version that is staged but not yet approved with `npm stage approve` is still absent
+      # from the registry; its `<name>@<version>` tag (pushed by the publish job) marks it as
+      # done so a later push to main does not stage it a second time.
       - name: Check for unpublished package versions
         if: steps.changesets.outputs.hasChangesets == 'false'
         id: publish-check
         run: node .github/scripts/has-unpublished-packages.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish:
     name: Publish
