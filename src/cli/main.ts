@@ -15,7 +15,7 @@ import {
 import { introspect } from "./introspect.js";
 import { check } from "./check.js";
 
-const HELP = `mcp-tada: gql.tada for MCP - typed tool calls derived from a live server's tools/list
+const HELP = `mcp-tada: typed tool calls derived from a live server's tools/list
 
 Usage:
   mcp-tada introspect [target flags] [--out <path>] [--name <TypeName>] [--json] [--verbose]
