@@ -1,0 +1,89 @@
+# mcp-tada
+
+[![npm](https://img.shields.io/npm/v/mcp-tada)](https://www.npmjs.com/package/mcp-tada)
+
+Compile-time typed [Model Context Protocol](https://modelcontextprotocol.io) tool calls for TypeScript. Snapshot a server's `tools/list` once, and every `callTool` gets a narrowed tool name, arguments inferred from `inputSchema`, and `structuredContent` typed from `outputSchema`. Zero runtime beyond a thin wrapper around the SDK client.
+
+The approach is the one [gql.tada](https://gql-tada.0no.co) uses for GraphQL: introspect into a `.d.ts`, then let the type system do the work.
+
+## Install
+
+```sh
+pnpm add mcp-tada @modelcontextprotocol/sdk
+```
+
+## Generate a snapshot
+
+```sh
+# stdio server
+pnpm mcp-tada introspect --stdio "npx -y @modelcontextprotocol/server-filesystem ." --out src/fs.introspection.d.ts
+
+# Streamable HTTP server
+pnpm mcp-tada introspect --url https://mcp.deepwiki.com/mcp --out src/deepwiki.introspection.d.ts
+```
+
+The file is a strict JSON type literal with each tool's title and description as JSDoc, so editors show them on hover. Commit it.
+
+## Use it
+
+```ts
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { initMcpTada } from "mcp-tada";
+import type { introspection } from "./deepwiki.introspection.js";
+
+const client = new Client({ name: "my-agent", version: "1.0.0" });
+await client.connect(new StreamableHTTPClientTransport(new URL("https://mcp.deepwiki.com/mcp")));
+
+const deepwiki = initMcpTada<introspection>().typed(client);
+
+const result = await deepwiki.callTool("read_wiki_structure", { repoName: "0no-co/gql.tada" });
+if (result.isError) {
+  console.error(result.content);
+} else {
+  result.structuredContent.result; // string, from outputSchema
+}
+```
+
+Results are a union on `isError`. On the error branch `content` is present and `structuredContent` is `unknown`. On the success branch `structuredContent` has the type derived from `outputSchema`, or `unknown` when the tool declares none. Tools whose input schema has no required properties can be called without an arguments object.
+
+## Keep the snapshot honest
+
+```sh
+pnpm mcp-tada check --url https://mcp.deepwiki.com/mcp --against src/deepwiki.introspection.d.ts
+```
+
+Exits 1 on added or removed tools and on any input or output schema change. Run it in CI. Both commands accept `--timeout <ms>` (default 30000) and a `--config mcp-tada.config.json` with several servers; see the repository docs for the config format.
+
+## Several servers
+
+```ts
+import { combineMcpTada } from "mcp-tada";
+
+const docs = combineMcpTada({ deepwiki, cloudflare });
+await docs.callTool("cloudflare__search_cloudflare_documentation", { query: "Durable Objects" });
+const tools = await docs.listTools(); // every server's tools, names prefixed, ready for an LLM
+docs.split("deepwiki__ask_question"); // { server: "deepwiki", tool: "ask_question" }
+```
+
+Aliases are validated at construction. The separator defaults to `__` and is configurable.
+
+## API
+
+- `initMcpTada<I>()` returns `{ typed(client) }`. The typed client exposes `callTool(name, args?, options?)`, `listTools()` which follows `nextCursor` until exhausted, and the underlying `client`.
+- `combineMcpTada(clients, { separator? })` merges typed clients under prefixed names.
+- `ToolNames<I>`, `ToolArgs<I, N>`, `ToolOutput<I, N>`, `ToolResult<I, N>` for naming derived types in your own signatures.
+- `FromSchema<S>` and `FromOutputSchema<S>` expose the JSON Schema to TypeScript mapper. Inputs are closed objects, outputs are open, so a field a server returns that its schema omits reads as `unknown`.
+- `Introspection` describes the snapshot shape: `{ tools: Record<string, { inputSchema: unknown; outputSchema?: unknown }> }`.
+
+## Supported schema vocabulary
+
+Draft-07 and 2020-12: `type` including arrays of types, `properties` with `required` and `additionalProperties`, `items` and `prefixItems`, `enum`, `const`, `anyOf`, `oneOf`, `allOf`, `nullable`, `$ref` into `$defs` or `definitions`, and `properties` without an explicit `type`. Unsupported keywords degrade to `unknown` rather than failing.
+
+## Server side
+
+If you also write the server, [`mcp-tada-server`](https://www.npmjs.com/package/mcp-tada-server) declares tools once and gives the client the same types with no introspection step.
+
+## More
+
+Full documentation, the CLI reference, three runnable examples, and a survey of `outputSchema` adoption across public servers live in the [repository](https://github.com/JoviDeCroock/mcp-tada).

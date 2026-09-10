@@ -33,7 +33,7 @@
     "typescript": "^7.0.2"
   },
   "lint-staged": {
-    "*.{ts,mts,js,mjs,json}": [
+    "*.{ts,mts,js,mjs}": [
       "oxfmt --write",
       "oxlint --fix"
     ]
