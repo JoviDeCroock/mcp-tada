@@ -53,6 +53,17 @@ describe.runIf(serverAvailable)("combineMcpTada (runtime, server-everything)", (
     expect(JSON.stringify(result.content)).toContain("2");
   });
 
+  it("routes tools.<alias>.<tool>() to the right server", async () => {
+    const one = initMcpTada<introspection>().typed(clientA);
+    const two = initMcpTada<introspection>().typed(clientB);
+    const combined = combineMcpTada({ one, two });
+
+    expect(combined.tools.one).toBe(one.tools);
+    const result = await combined.tools.two["get-sum"]({ a: 2, b: 3 });
+    expect(result.isError).not.toBe(true);
+    expect(JSON.stringify(result.content)).toContain("5");
+  });
+
   it("lists every server's tools with prefixed names", async () => {
     const one = initMcpTada<introspection>().typed(clientA);
     const two = initMcpTada<introspection>().typed(clientB);

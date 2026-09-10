@@ -38,7 +38,8 @@ if (!cf.isError) {
 }
 
 // Context7 declares no outputSchema, so structuredContent is `unknown` and content is what you use.
-const lib = await docs.callTool("context7__resolve-library-id", {
+// `tools.<alias>.<tool>()` is the same call as the prefixed callTool, without spelling the prefix.
+const lib = await docs.tools.context7["resolve-library-id"]({
   libraryName: "gql.tada",
   query: "typed GraphQL documents",
 });
@@ -52,5 +53,6 @@ console.log("\nsplit:", docs.split("deepwiki__read_wiki_structure"));
 // Compile errors, one per line:
 // await docs.callTool("cloudflare__search", { query: "x" });
 // await docs.callTool("deepwiki__ask_question", { question: "x" });
+// await docs.tools.deepwiki.ask_question({ question: "x" });
 
 await Promise.all([deepwikiClient.close(), cloudflareClient.close(), context7Client.close()]);

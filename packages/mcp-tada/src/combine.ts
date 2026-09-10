@@ -49,10 +49,13 @@ type ServersOf<M extends Record<string, AnyTypedClient>> = {
 
 export type CombinedClient<M extends Record<string, AnyTypedClient>, Sep extends string> = Omit<
   TypedClient<CombinedIntrospection<ServersOf<M>, Sep>>,
-  "listTools" | "client"
+  "listTools" | "client" | "tools"
 > & {
   /** Direct access to each underlying typed client, keyed by its alias. */
   servers: M;
+  /** Each server's tools as methods under its alias: `combined.tools.gh.search({ ... })` is
+   * `combined.servers.gh.tools.search({ ... })`, with no prefixed string to spell. */
+  tools: { [K in keyof M]: M[K]["tools"] };
   /** Every server's tools, each named `<alias><separator><tool>`, ready for an LLM tool list. */
   listTools(): Promise<Tool[]>;
   /** Splits a prefixed tool name back into its server alias and original tool name. */
@@ -117,5 +120,12 @@ export function combineMcpTada<M extends Record<string, AnyTypedClient>, Sep ext
     return lists.flat();
   }
 
-  return { servers: clients, split, callTool, listTools } as unknown as CombinedClient<M, Sep>;
+  const tools = Object.fromEntries(
+    Object.entries(clients).map(([alias, client]) => [alias, client.tools]),
+  );
+
+  return { servers: clients, split, callTool, listTools, tools } as unknown as CombinedClient<
+    M,
+    Sep
+  >;
 }

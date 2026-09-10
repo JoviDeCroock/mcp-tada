@@ -34,7 +34,8 @@ if (missing.isError) {
   console.log("get_note reported:", missing.content[0]?.type === "text" && missing.content[0].text);
 }
 
-const all = await notes.callTool("list_notes");
+// Every tool is also a method under `tools`, with the same types as callTool.
+const all = await notes.tools.list_notes();
 if (!all.isError)
   console.log(
     "stored notes:",
@@ -48,5 +49,6 @@ console.log("clear_notes:", cleared.content[0]?.type === "text" && cleared.conte
 // await notes.callTool("add_note", { title: "no body" });
 // await notes.callTool("get_note", { id: "1" });
 // await notes.callTool("remove_note", { id: 1 });
+// await notes.tools.add_note({ title: "no body" });
 
 await client.close();

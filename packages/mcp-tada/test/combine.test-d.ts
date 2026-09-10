@@ -34,6 +34,27 @@ describe("combineMcpTada", () => {
     expectTypeOf(combined.servers.fs).toEqualTypeOf<typeof fs>();
   });
 
+  test("tools nests each server's methods under its alias", async () => {
+    const combined = combineMcpTada({ gh, fs });
+    const r1 = await combined.tools.gh["get-structured-content"]({ location: "Chicago" });
+    if (r1.isError) throw new Error("unexpected error");
+    expectTypeOf(r1.structuredContent.temperature).toEqualTypeOf<number>();
+
+    const r2 = await combined.tools.fs.search({ query: "readme" });
+    if (r2.isError) throw new Error("unexpected error");
+    expectTypeOf(r2.structuredContent.results).toEqualTypeOf<string[]>();
+
+    expectTypeOf(combined.tools.gh).toEqualTypeOf<typeof gh.tools>();
+    expectTypeOf<keyof typeof combined.tools>().toEqualTypeOf<"gh" | "fs">();
+
+    // @ts-expect-error unknown alias
+    void combined.tools.nope;
+    // @ts-expect-error prefixed names belong to callTool, not tools
+    void combined.tools.gh["gh__get-sum"];
+    // @ts-expect-error wrong type for fs's echo
+    await combined.tools.fs.echo({ text: 42 });
+  });
+
   test("split resolves a prefixed name to its server and tool", () => {
     const combined = combineMcpTada({ gh, fs });
     const { server, tool } = combined.split("gh__echo");

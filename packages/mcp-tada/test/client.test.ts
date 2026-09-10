@@ -34,6 +34,13 @@ describe.runIf(serverAvailable)("typed client (runtime, server-everything)", () 
     expect(JSON.stringify(result.content)).toContain("5");
   });
 
+  it("exposes every tool as a method under tools", async () => {
+    const mcp = initMcpTada<introspection>().typed(client);
+    const result = await mcp.tools["get-sum"]({ a: 2, b: 3 });
+    expect(result.isError).not.toBe(true);
+    expect(JSON.stringify(result.content)).toContain("5");
+  });
+
   it("calls get-structured-content and gets typed structuredContent back", async () => {
     const mcp = initMcpTada<introspection>().typed(client);
     const result = await mcp.callTool("get-structured-content", { location: "Chicago" });
@@ -64,6 +71,52 @@ describe("typed client (isError result, stub client)", () => {
     expect(result.isError).toBe(true);
     expect(result.structuredContent).toBeUndefined();
     expect(result.content).toEqual(errorResult.content);
+  });
+});
+
+describe("tools namespace (stub client)", () => {
+  function stubClient() {
+    const calls: unknown[] = [];
+    const stub = {
+      listTools: async () => ({ tools: [] }),
+      callTool: async (params: unknown, _schema: unknown, options: unknown) => {
+        calls.push({ params, options });
+        return { content: [] };
+      },
+    };
+    return { calls, mcp: initMcpTada<introspection>().typed(stub as never) };
+  }
+
+  it("forwards the property name as the tool name, with args and options", async () => {
+    const { calls, mcp } = stubClient();
+    const options = { timeout: 5 };
+    await mcp.tools.echo({ message: "hi" }, options);
+    expect(calls).toEqual([{ params: { name: "echo", arguments: { message: "hi" } }, options }]);
+  });
+
+  it("forwards a call with no args", async () => {
+    const { calls, mcp } = stubClient();
+    await mcp.tools["get-env"]();
+    expect(calls).toEqual([
+      { params: { name: "get-env", arguments: undefined }, options: undefined },
+    ]);
+  });
+
+  it("returns a stable function per tool name", () => {
+    const { mcp } = stubClient();
+    expect(mcp.tools.echo).toBe(mcp.tools.echo);
+    expect(mcp.tools.echo).not.toBe(mcp.tools["get-env"]);
+  });
+
+  it("is not thenable and survives serialization probes", async () => {
+    const { calls, mcp } = stubClient();
+    const tools = mcp.tools as unknown as Record<string, unknown>;
+    expect(tools.then).toBeUndefined();
+    expect(tools.toJSON).toBeUndefined();
+    // `await` on a non-thenable resolves to the object itself without invoking anything.
+    expect(await mcp.tools).toBe(mcp.tools);
+    expect(Object.keys(mcp.tools)).toEqual([]);
+    expect(calls).toEqual([]);
   });
 });
 

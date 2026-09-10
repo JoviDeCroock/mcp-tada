@@ -81,42 +81,87 @@ type CallToolArgs<S> =
     ? [args?: FromSchema<S>, options?: RequestOptions]
     : [args: FromSchema<S>, options?: RequestOptions];
 
+/**
+ * One method per tool, so `mcp.tools.read_file({ path })` is `mcp.callTool("read_file", { path })`
+ * with the same argument and result types. Names that aren't identifiers still work through
+ * bracket access: `mcp.tools["get-library-docs"]({ ... })`.
+ */
+export type ToolMethods<I extends Introspection> = {
+  [N in ToolNames<I>]: (
+    ...rest: CallToolArgs<I["tools"][N]["inputSchema"]>
+  ) => Promise<ToolResult<I, N>>;
+};
+
 export type TypedClient<I extends Introspection> = {
   callTool<N extends ToolNames<I>>(
     name: N,
     ...rest: CallToolArgs<I["tools"][N]["inputSchema"]>
   ): Promise<ToolResult<I, N>>;
+  /** Every tool as a method: `mcp.tools.<name>(args?, options?)`. Backed by a `Proxy` since tool
+   * names only exist at the type level, so `Object.keys(mcp.tools)` is empty; use `listTools()`
+   * for runtime discovery. */
+  tools: ToolMethods<I>;
   /** Every tool from every server page, following `nextCursor` until exhausted. For the raw,
    * single-page SDK call, use `client.listTools(...)` directly. */
   listTools(): Promise<Tool[]>;
   client: Client;
 };
 
+// Property names a catch-all proxy must not answer: `then` would make `tools` thenable (so
+// `await` and `Promise.resolve` would hang on it), and the rest are probed by runtimes and
+// serializers. A tool with one of these names is still reachable through `callTool`.
+const reserved = new Set(["then", "catch", "finally", "toJSON", "constructor", "prototype"]);
+
+/**
+ * Builds a `tools` namespace whose every string property is a function forwarding to `call`
+ * with that property as the tool name. The introspection only exists at the type level, so the
+ * names can't be enumerated up front; a `Proxy` resolves them on access instead.
+ */
+function toolMethods<T>(
+  call: (name: string, args?: unknown, options?: RequestOptions) => Promise<unknown>,
+): T {
+  const cache = new Map<string, (args?: unknown, options?: RequestOptions) => Promise<unknown>>();
+  return new Proxy(Object.create(null) as object, {
+    get(_target, prop) {
+      if (typeof prop !== "string" || reserved.has(prop)) return undefined;
+      let method = cache.get(prop);
+      if (!method) {
+        method = (args, options) => call(prop, args, options);
+        cache.set(prop, method);
+      }
+      return method;
+    },
+  }) as T;
+}
+
 /**
  * Initializes a typed wrapper for a given introspection snapshot. The generic
  * `Introspection` describes the server's tools at the type level only; nothing about it
  * is used at runtime. Call `.typed(client)` with a live SDK `Client` to get back a
  * `callTool` that narrows tool names, infers `args` from `inputSchema`, and types
- * `structuredContent` from `outputSchema`.
+ * `structuredContent` from `outputSchema`, plus a `tools` namespace exposing the same calls
+ * as methods.
  */
 export function initMcpTada<I extends Introspection>() {
   return {
     typed(client: Client): TypedClient<I> {
+      async function callTool<N extends ToolNames<I>>(
+        name: N,
+        ...rest: CallToolArgs<I["tools"][N]["inputSchema"]>
+      ): Promise<ToolResult<I, N>> {
+        const [args, options] = rest;
+        const result = await client.callTool(
+          { name, arguments: args as Record<string, unknown> },
+          undefined,
+          options,
+        );
+        return result as unknown as ToolResult<I, N>;
+      }
       return {
         client,
         listTools: () => listAllTools(client.listTools.bind(client)),
-        async callTool<N extends ToolNames<I>>(
-          name: N,
-          ...rest: CallToolArgs<I["tools"][N]["inputSchema"]>
-        ): Promise<ToolResult<I, N>> {
-          const [args, options] = rest;
-          const result = await client.callTool(
-            { name, arguments: args as Record<string, unknown> },
-            undefined,
-            options,
-          );
-          return result as unknown as ToolResult<I, N>;
-        },
+        callTool,
+        tools: toolMethods<ToolMethods<I>>(callTool as never),
       };
     },
   };
