@@ -1,8 +1,9 @@
-// Pre-commit verification. Formatters run first because they rewrite the tree;
-// the read-only checks (build, typecheck, test) then run together. Output is
-// printed only for failing steps.
+// Pre-commit verification. Formatters run first because they rewrite the tree,
+// then build, because the examples and mcp-tada-server resolve mcp-tada's types
+// through its dist, and finally typecheck and test together. Output is printed
+// only for failing steps.
 //
-//   node scripts/verify.mjs          format, lint, then build/typecheck/test
+//   node scripts/verify.mjs          format, lint, build, then typecheck/test
 //   node scripts/verify.mjs --check  report formatting and lint, never rewrite
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -52,13 +53,12 @@ if (ok()) {
       : await run("lint", "pnpm", ["run", "lint"]),
   );
 }
+if (ok()) report(await run("build", "pnpm", ["run", "build"]));
 if (ok()) {
   await Promise.all(
-    [
-      run("build", "pnpm", ["run", "build"]),
-      run("typecheck", "pnpm", ["run", "typecheck"]),
-      run("test", "pnpm", ["run", "test"]),
-    ].map((task) => task.then(report)),
+    [run("typecheck", "pnpm", ["run", "typecheck"]), run("test", "pnpm", ["run", "test"])].map(
+      (task) => task.then(report),
+    ),
   );
 }
 
