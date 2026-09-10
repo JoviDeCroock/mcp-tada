@@ -1,0 +1,16 @@
+{
+  "servers": {
+    "deepwiki": {
+      "url": "https://mcp.deepwiki.com/mcp",
+      "output": "src/deepwiki.introspection.d.ts"
+    },
+    "cloudflare": {
+      "url": "https://docs.mcp.cloudflare.com/mcp",
+      "output": "src/cloudflare.introspection.d.ts"
+    },
+    "context7": {
+      "url": "https://mcp.context7.com/mcp",
+      "output": "src/context7.introspection.d.ts"
+    }
+  }
+}

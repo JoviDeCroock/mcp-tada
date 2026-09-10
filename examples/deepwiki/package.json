@@ -1,0 +1,21 @@
+{
+  "name": "@mcp-tada/example-deepwiki",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "introspect": "mcp-tada introspect --config mcp-tada.config.json",
+    "check": "mcp-tada check --config mcp-tada.config.json",
+    "start": "pnpm build && node dist/client.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "mcp-tada": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.0",
+    "typescript": "^7.0.2"
+  }
+}

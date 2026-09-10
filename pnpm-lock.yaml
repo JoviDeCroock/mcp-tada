@@ -30,6 +30,38 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
+  examples/combined:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.30.0
+        version: 1.30.0(zod@4.5.4)
+      mcp-tada:
+        specifier: workspace:*
+        version: link:../../packages/mcp-tada
+    devDependencies:
+      '@types/node':
+        specifier: ^26.5.0
+        version: 26.5.0
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
+  examples/deepwiki:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.30.0
+        version: 1.30.0(zod@4.5.4)
+      mcp-tada:
+        specifier: workspace:*
+        version: link:../../packages/mcp-tada
+    devDependencies:
+      '@types/node':
+        specifier: ^26.5.0
+        version: 26.5.0
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
   examples/notes:
     dependencies:
       '@modelcontextprotocol/sdk':
