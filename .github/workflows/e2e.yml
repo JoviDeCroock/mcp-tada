@@ -7,6 +7,11 @@ on:
     - cron: "17 6 * * *"
   workflow_dispatch:
 
+# One run per ref at a time: the suite drives third-party servers, so do not queue duplicates.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   e2e:
     name: Real servers

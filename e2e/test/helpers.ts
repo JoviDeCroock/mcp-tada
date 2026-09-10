@@ -5,7 +5,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import {
+  getDefaultEnvironment,
+  StdioClientTransport,
+} from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { loadConfig, parseDtsSnapshot, type IntrospectionData } from "mcp-tada/cli";
 import { validate } from "mcp-tada-server";
@@ -31,9 +34,27 @@ export function committedSnapshot(alias: string): IntrospectionData {
   return parseDtsSnapshot(readFileSync(server.output, "utf8"));
 }
 
-export async function connectStdio(command: string, args: string[]): Promise<Client> {
+// The published stdio servers, pinned so an upstream release cannot fail the drift check.
+export const FILESYSTEM_SERVER = "@modelcontextprotocol/server-filesystem@2026.8.31";
+export const MEMORY_SERVER = "@modelcontextprotocol/server-memory@2026.8.31";
+
+/** Spawn a stdio server. The SDK only passes a minimal environment to the child, so anything the
+ * server reads from `process.env` must be given explicitly here. Its stderr is dropped: `npx -y`
+ * is chatty there, and a piped stream nobody reads would block the child once the buffer fills. */
+export async function connectStdio(
+  command: string,
+  args: string[],
+  env: Record<string, string> = {},
+): Promise<Client> {
   const client = new Client({ name: "mcp-tada-e2e", version: "0.0.0" });
-  await client.connect(new StdioClientTransport({ command, args, stderr: "pipe" }));
+  await client.connect(
+    new StdioClientTransport({
+      command,
+      args,
+      env: { ...getDefaultEnvironment(), ...env },
+      stderr: "ignore",
+    }),
+  );
   return client;
 }
 

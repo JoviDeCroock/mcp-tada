@@ -1,6 +1,6 @@
 // Typed calls against published stdio servers, using the committed snapshots for the types and
 // the servers' own outputSchema to validate what comes back at runtime.
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -8,15 +8,22 @@ import { initMcpTada, readOnly } from "mcp-tada";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { introspection as Filesystem } from "../snapshots/filesystem.introspection.js";
 import type { introspection as Memory } from "../snapshots/memory.introspection.js";
-import { committedSnapshot, connectStdio, expectStructuredContentToMatch } from "./helpers.js";
+import {
+  committedSnapshot,
+  connectStdio,
+  expectStructuredContentToMatch,
+  FILESYSTEM_SERVER,
+  MEMORY_SERVER,
+} from "./helpers.js";
 
 describe("@modelcontextprotocol/server-filesystem", () => {
-  const dir = mkdtempSync(join(tmpdir(), "mcp-tada-e2e-fs-"));
+  // realpath: the server reports resolved paths, and macOS puts tmpdir behind a symlink.
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "mcp-tada-e2e-fs-")));
   const snapshot = committedSnapshot("filesystem");
   let client: Client;
 
   beforeAll(async () => {
-    client = await connectStdio("npx", ["-y", "@modelcontextprotocol/server-filesystem", dir]);
+    client = await connectStdio("npx", ["-y", FILESYSTEM_SERVER, dir]);
   });
   afterAll(async () => {
     await client.close();
@@ -64,8 +71,10 @@ describe("@modelcontextprotocol/server-memory", () => {
   let client: Client;
 
   beforeAll(async () => {
-    process.env["MEMORY_FILE_PATH"] = join(dir, "memory.jsonl");
-    client = await connectStdio("npx", ["-y", "@modelcontextprotocol/server-memory"]);
+    // A fresh store per run, so entities from an earlier run cannot satisfy the assertions.
+    client = await connectStdio("npx", ["-y", MEMORY_SERVER], {
+      MEMORY_FILE_PATH: join(dir, "memory.jsonl"),
+    });
   });
   afterAll(async () => {
     await client.close();
@@ -82,7 +91,7 @@ describe("@modelcontextprotocol/server-memory", () => {
     const graph = await memory.tools.read_graph();
     if (graph.isError) throw new Error("read_graph failed");
     expectStructuredContentToMatch(snapshot, "read_graph", graph.structuredContent);
-    expect(graph.structuredContent.entities.map((e) => e.name)).toContain("mcp-tada");
+    expect(graph.structuredContent.entities.map((e) => e.name)).toEqual(["mcp-tada"]);
   });
 
   it("readOnly keeps exactly the three read tools", async () => {

@@ -2,12 +2,12 @@
   "servers": {
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "args": ["-y", "@modelcontextprotocol/server-filesystem@2026.8.31", "."],
       "output": "snapshots/filesystem.introspection.d.ts"
     },
     "memory": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-memory"],
+      "args": ["-y", "@modelcontextprotocol/server-memory@2026.8.31"],
       "output": "snapshots/memory.introspection.d.ts"
     },
     "deepwiki": {
