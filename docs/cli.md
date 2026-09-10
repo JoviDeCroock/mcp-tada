@@ -49,6 +49,8 @@ reorders them. Each tool key gets a JSDoc comment above it built from the tool's
 
 The `prompts` map is present only when the server declares the `prompts` capability (it is `{}`
 for a server that declares it but lists none), so a snapshot of a tools-only server is unchanged.
+If a server declares the capability but `prompts/list` fails, a warning is printed and the key is
+omitted rather than failing the whole snapshot.
 Each prompt records its argument names and `required` flags in the server's order; the prompt's
 `title` and `description`, and each argument's description as a `@param` tag, go into the JSDoc
 block rather than the data, so a reworded description does not read as drift in `check`.

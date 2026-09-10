@@ -63,6 +63,12 @@ describe("readOnly view", () => {
   const mcp = initMcpTada<introspection>().typed(client);
   const safe = readOnly(mcp);
 
+  test("keeps the prompts of the snapshot it narrows", async () => {
+    await safe.getPrompt("args-prompt", { city: "Chicago" });
+    // @ts-expect-error unknown prompt
+    await safe.getPrompt("nope");
+  });
+
   test("narrows callTool and tools to read-only names", async () => {
     expectTypeOf<ToolNames<introspection>>().toMatchTypeOf<string>();
     expectTypeOf<keyof typeof safe.tools>().toEqualTypeOf<ReadOnlyToolNames<introspection>>();

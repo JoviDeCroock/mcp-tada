@@ -150,6 +150,24 @@ describe("getPrompt (stub client)", () => {
   });
 });
 
+describe("listPrompts without the prompts capability (stub client)", () => {
+  it("returns [] instead of asking a server that would reject the request", async () => {
+    let asked = false;
+    const stub = {
+      getServerCapabilities: () => ({ tools: {} }),
+      listTools: async () => ({ tools: [] }),
+      listPrompts: async () => {
+        asked = true;
+        return { prompts: [] };
+      },
+      callTool: async () => ({ content: [] }),
+    };
+    const mcp = initMcpTada<introspection>().typed(stub as never);
+    expect(await mcp.listPrompts()).toEqual([]);
+    expect(asked).toBe(false);
+  });
+});
+
 describe("readOnly view (stub client)", () => {
   const tools = [
     { name: "a", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } },

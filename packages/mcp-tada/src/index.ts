@@ -155,7 +155,8 @@ export type TypedClient<I extends Introspection> = {
     name: N,
     ...rest: GetPromptArgs<N, I>
   ): Promise<GetPromptResult>;
-  /** Every prompt from every `prompts/list` page. Returns `[]` when the server has none. */
+  /** Every prompt from every `prompts/list` page. Returns `[]` without a request when the
+   * connected server does not declare the `prompts` capability (the SDK would throw). */
   listPrompts(): Promise<Prompt[]>;
   /** Every tool as a method: `mcp.tools.<name>(args?, options?)`. Backed by a `Proxy` since tool
    * names only exist at the type level, so `Object.keys(mcp.tools)` is empty; use `listTools()`
@@ -233,7 +234,10 @@ export function initMcpTada<I extends Introspection>() {
       return {
         client,
         listTools: () => listAllTools(client.listTools.bind(client)),
-        listPrompts: () => listAllPrompts(client.listPrompts.bind(client)),
+        listPrompts: () =>
+          client.getServerCapabilities()?.prompts === undefined
+            ? Promise.resolve([])
+            : listAllPrompts(client.listPrompts.bind(client)),
         callTool,
         getPrompt,
         tools: toolMethods<ToolMethods<I>>(callTool as never),

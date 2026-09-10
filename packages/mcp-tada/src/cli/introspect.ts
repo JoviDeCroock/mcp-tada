@@ -67,12 +67,20 @@ export async function introspectTarget(
         },
       ),
     );
-    const prompts =
-      caps?.prompts !== undefined
-        ? await withTimeoutWrapping(target, transport, () =>
-            listAllPrompts((params) => client.listPrompts(params, listOptions)),
-          )
-        : undefined;
+    let prompts: Prompt[] | undefined;
+    if (caps?.prompts !== undefined) {
+      try {
+        prompts = await withTimeoutWrapping(target, transport, () =>
+          listAllPrompts((params) => client.listPrompts(params, listOptions)),
+        );
+      } catch (err) {
+        // A server that advertises prompts but cannot list them should not take the tool
+        // snapshot down with it; the omitted key reads as "no prompts recorded".
+        console.error(
+          `mcp-tada: prompts/list failed, snapshot will not include prompts: ${(err as Error).message}`,
+        );
+      }
+    }
 
     // NOTE: getNegotiatedProtocolVersion() only tells us anything for the streamable HTTP
     // transport, which exposes it publicly; stdio/SSE don't expose the negotiated version

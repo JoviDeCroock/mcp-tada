@@ -27,11 +27,12 @@ export type NonDestructiveToolNames<I extends Introspection> = {
       : never;
 }[ToolNames<I>];
 
-/** `I` narrowed to the tools named in `Names`; still an `Introspection`, so every derived type
- * (`ToolNames`, `ToolArgs`, `ToolResult`, ...) works on it unchanged. */
+/** `I` narrowed to the tools named in `Names`, keeping its prompts (reading a prompt never
+ * writes anything); still an `Introspection`, so every derived type (`ToolNames`, `ToolArgs`,
+ * `ToolResult`, `PromptNames`, ...) works on it unchanged. */
 export type PickTools<I extends Introspection, Names extends ToolNames<I>> = {
   tools: { [N in Names]: I["tools"][N] };
-};
+} & (I extends { prompts: infer P } ? { prompts: P } : {});
 
 export type ReadOnlyIntrospection<I extends Introspection> = PickTools<I, ReadOnlyToolNames<I>>;
 
