@@ -20,6 +20,8 @@ pnpm add mcp-tada @modelcontextprotocol/sdk
 pnpm mcp-tada introspect --stdio "npx -y @modelcontextprotocol/server-filesystem ." --out src/fs.introspection.d.ts
 ```
 
+Requires Node 22.18 or newer. TypeScript 5.4 or newer is supported and the test suite runs on both TypeScript 5 and 7.
+
 ```ts
 import { initMcpTada } from "mcp-tada";
 import type { introspection } from "./fs.introspection.js";
