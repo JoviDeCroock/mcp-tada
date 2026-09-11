@@ -191,6 +191,26 @@ combined.servers.gh; // direct access to the underlying typed client
 combined.split("gh__search"); // -> { server: "gh", tool: "search" }
 ```
 
+## Testing
+
+`mcp-tada/testing` exports `mockMcpTada<introspection>(handlers)`, a `TypedClient` backed by in-memory handlers instead of a server. Each handler's arguments are typed from the tool's `inputSchema`, and its return is either a full result or, for a tool with an `outputSchema`, the bare `structuredContent`, which the mock wraps the way an SDK server would. Both maps are partial: calling an unmocked tool throws, naming it, so a test only describes what it exercises. Every call is recorded on `calls` (and `promptCalls`), as a union on `name` so a comparison narrows `args`.
+
+```ts
+import { mockMcpTada } from "mcp-tada/testing";
+
+const mcp = mockMcpTada<introspection>({
+  tools: {
+    read_file: ({ path }) => ({ content: [{ type: "text", text: `contents of ${path}` }] }),
+    get_weather: ({ city }) => ({ temperature: 20, conditions: `sunny in ${city}` }),
+  },
+});
+
+await runAgent(mcp); // anything that takes a TypedClient<introspection>
+expect(mcp.calls).toEqual([{ name: "read_file", args: { path: "README.md" } }]);
+```
+
+The mock is a real `TypedClient`, so `readOnly` and `combineMcpTada` accept it. Its `client` property throws on any access, since there is no SDK client behind it. `listTools()` reports the mocked names only; schemas live in the snapshot type.
+
 ## Workflow
 
 The snapshot is a committed file, and the commands map onto the moments where it can go stale.
