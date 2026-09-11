@@ -9,7 +9,7 @@ Point it at a running MCP server once, and every `callTool` in your codebase get
 - tool names as a union, so a typo is a compile error
 - arguments inferred from the tool's `inputSchema`
 - `structuredContent` typed from the tool's `outputSchema`
-- the tool's description on hover
+- the tool's description and each argument's description on hover
 - the tool's annotations (`readOnlyHint`, `destructiveHint`, ...) at the type level, so you can hand an agent only the read-only tools
 - `getPrompt` with prompt names as a union and arguments typed from each prompt's argument list
 
@@ -42,11 +42,13 @@ if (!result.isError) {
 
 Tools whose input schema has no required properties can be called without an arguments object.
 
-Every tool is also a method under `tools`, with the same argument and result types, so your editor lists them on `fs.tools.`:
+Every tool is also a method under `tools`, with the same argument and result types, so your editor lists them on `fs.tools.` and shows the tool's description and argument descriptions when you hover a method:
 
 ```ts
 const result = await fs.tools.read_file({ path: "README.md" });
 ```
+
+A string tool name like `callTool("read_file", ...)` cannot carry documentation in TypeScript, so use the `tools` form when you want docs on hover.
 
 Prompts get the same treatment when the server declares the `prompts` capability: the snapshot records each prompt's argument names and which are required, and `getPrompt` types them as strings.
 

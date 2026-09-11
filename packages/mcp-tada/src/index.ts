@@ -132,9 +132,9 @@ type CallToolArgs<S> =
  * bracket access: `mcp.tools["get-library-docs"]({ ... })`.
  */
 export type ToolMethods<I extends Introspection> = {
-  [N in ToolNames<I>]: (
+  [N in keyof I["tools"]]: (
     ...rest: CallToolArgs<I["tools"][N]["inputSchema"]>
-  ) => Promise<ToolResult<I, N>>;
+  ) => Promise<ToolResult<I, N & string>>;
 };
 
 // Same widening for prompts: `args` is optional when no argument is `required: true`.

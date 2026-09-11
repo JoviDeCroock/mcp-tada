@@ -3,11 +3,13 @@
 // server: docs-ai-search@0.4.13
 // protocolVersion: 2025-11-25
 // capabilities.tools.listChanged: true
+// capabilities.prompts.listChanged: true
 
 /* prettier-ignore */
 export type introspection = {
   "tools": {
     /**
+     * Get Pages migration guide
      * ALWAYS read this guide before migrating Pages projects to Workers.
      */
     "migrate_pages_to_workers_guide": {
@@ -15,19 +17,24 @@ export type introspection = {
         "type": "object",
         "properties": {},
         "$schema": "https://json-schema.org/draft/2020-12/schema"
+      },
+      "annotations": {
+        "title": "Get Pages migration guide",
+        "readOnlyHint": true
       }
     },
     /**
+     * Search Cloudflare docs
      * Search the Cloudflare documentation.
-
-		This tool should be used to answer any question about Cloudflare products or features, including:
-		- Workers, Pages, R2, Images, Stream, D1, Durable Objects, KV, Workflows, Hyperdrive, Queues
-		- AI Search, Workers AI, Vectorize, AI Gateway, Browser Run
-		- Zero Trust, Access, Tunnel, Gateway, Browser Isolation, WARP, DDOS, Magic Transit, Magic WAN
-		- CDN, Cache, DNS, Zaraz, Argo, Rulesets, Terraform, Account and Billing
-
-		Results are returned as semantically similar chunks to the query.
-		
+     *
+     * 		This tool should be used to answer any question about Cloudflare products or features, including:
+     * 		- Workers, Pages, R2, Images, Stream, D1, Durable Objects, KV, Workflows, Hyperdrive, Queues
+     * 		- AI Search, Workers AI, Vectorize, AI Gateway, Browser Run
+     * 		- Zero Trust, Access, Tunnel, Gateway, Browser Isolation, WARP, DDOS, Magic Transit, Magic WAN
+     * 		- CDN, Cache, DNS, Zaraz, Argo, Rulesets, Terraform, Account and Billing
+     *
+     * 		Results are returned as semantically similar chunks to the query.
+     * 		
      */
     "search_cloudflare_documentation": {
       "inputSchema": {
@@ -87,7 +94,19 @@ export type introspection = {
         ],
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Search Cloudflare docs",
+        "readOnlyHint": true
       }
+    }
+  },
+  "prompts": {
+    /**
+     * Detailed prompt for generating Cloudflare Workers code (and other developer platform products) from https://developers.cloudflare.com/workers/prompt.txt
+     */
+    "workers-prompt-full": {
+      "arguments": []
     }
   }
 };

@@ -31,7 +31,7 @@ export type NonDestructiveToolNames<I extends Introspection> = {
  * writes anything); still an `Introspection`, so every derived type (`ToolNames`, `ToolArgs`,
  * `ToolResult`, `PromptNames`, ...) works on it unchanged. */
 export type PickTools<I extends Introspection, Names extends ToolNames<I>> = {
-  tools: { [N in Names]: I["tools"][N] };
+  tools: { [N in keyof I["tools"] as N extends Names ? N : never]: I["tools"][N] };
 } & (I extends { prompts: infer P } ? { prompts: P } : {});
 
 export type ReadOnlyIntrospection<I extends Introspection> = PickTools<I, ReadOnlyToolNames<I>>;

@@ -3,12 +3,15 @@
 // server: DeepWiki@2.14.3
 // protocolVersion: 2025-11-25
 // capabilities.tools.listChanged: true
+// capabilities.prompts.listChanged: true
 
 /* prettier-ignore */
 export type introspection = {
   "tools": {
     /**
      * Ask any question about a GitHub repository and get an AI-powered, context-grounded response.
+     * @param args.repoName GitHub repository or list of repositories (max 10) in owner/repo format.
+     * @param args.question The question to ask about the repository.
      */
     "ask_question": {
       "inputSchema": {
@@ -53,6 +56,7 @@ export type introspection = {
     },
     /**
      * View documentation about a GitHub repository.
+     * @param args.repoName GitHub repository in owner/repo format (e.g. "facebook/react").
      */
     "read_wiki_contents": {
       "inputSchema": {
@@ -82,6 +86,7 @@ export type introspection = {
     },
     /**
      * Get a list of documentation topics for a GitHub repository.
+     * @param args.repoName GitHub repository in owner/repo format (e.g. "facebook/react").
      */
     "read_wiki_structure": {
       "inputSchema": {
@@ -109,5 +114,8 @@ export type introspection = {
         "x-fastmcp-wrap-result": true
       }
     }
+  },
+  "prompts": {
+
   }
 };
