@@ -1,6 +1,8 @@
+/* eslint-disable */
 // hand-written fixture for combine.test-d.ts / combine.test.ts: a second, unrelated server
 // whose "echo" tool collides by name with the "everything" fixture's "echo" tool, to exercise
 // namespacing in combineMcpTada.
+/* prettier-ignore */
 export type introspection = { tools: {
   "echo": {
     "inputSchema": {
