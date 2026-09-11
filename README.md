@@ -149,7 +149,20 @@ combined.servers.gh; // direct access to the underlying typed client
 combined.split("gh__search"); // -> { server: "gh", tool: "search" }
 ```
 
-## Keeping the snapshot honest
+## Workflow
+
+The snapshot is a committed file, and the commands map onto the moments where it can go stale.
+
+- **Setup.** List each server and its `output` in `mcp-tada.config.json`, then run `mcp-tada introspect` to write one snapshot per server. Commit the snapshots.
+- **Editing.** Types come from the committed snapshot, so nothing runs while you edit. Re-run `introspect` when you upgrade a server or change one you author; the file is left alone when nothing changed, so it is cheap to run often.
+- **Committing.** The snapshot changes only when a server's contract does, which makes its diff a review artifact: a widened input, a new `outputSchema`, or a tool that stopped being read-only shows up in the pull request next to the code that relies on it.
+- **CI.** Run `mcp-tada check` to fail when a live server has drifted from the snapshot, and `mcp-tada introspect` followed by `git diff --exit-code` to fail when someone forgot to commit a regenerated one. Both need the servers reachable from CI, so put secrets in `env` through the runner's environment rather than in the config.
+
+```yaml
+- run: pnpm mcp-tada introspect
+- run: git diff --exit-code -- '**/*.introspection.d.ts'
+- run: pnpm mcp-tada check
+```
 
 Tool lists can change, and so can what a tool promises about itself. Servers declare `tools.listChanged`, and the 2026-07-28 spec revision adds `ttlMs` and `cacheScope` to list results, which `introspect` records in the file header when present. A tool that exists in the snapshot but not on the server fails at runtime the same way a removed GraphQL field would. The snapshot is your contract, and `mcp-tada check` keeps it current.
 
