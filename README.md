@@ -80,7 +80,7 @@ mcp-tada introspect --url https://example.com/mcp --header "Authorization: Beare
 mcp-tada introspect --stdio "node server.js" --json --out tools.json
 ```
 
-Flags: `--stdio` or `--command` plus repeatable `--arg` and `--env KEY=VAL`; `--url` plus repeatable `--header`; `--out`, `--name <TypeName>` for an extra exported alias, `--json`, `--verbose`, `--timeout <ms>` (default 30000, applied to connecting and to each `tools/list` request; also settable per server as `timeoutMs` in the config file). The file is left untouched when the output is byte-identical. It starts with `/* eslint-disable */` and a `/* prettier-ignore */` line, because the type literal has to stay quoted-key JSON for `check` to read it back. Warnings are printed for tools without `outputSchema` and for schemas that `$ref` an external URI. With `--config` and more than one server selected, `--out` is rejected (every server would overwrite the same file) - give each server its own `output` in the config, or select a single alias.
+Flags: `--stdio` or `--command` plus repeatable `--arg` and `--env KEY=VAL`; `--url` plus repeatable `--header`; `--out`, `--name <TypeName>` for an extra exported alias, `--json`, `--verbose`, `--timeout <ms>` (default 30000, applied to connecting and to each `tools/list` request; also settable per server as `timeoutMs` in the config file). The file is left untouched when the output is byte-identical. Warnings are printed for tools without `outputSchema` and for schemas that `$ref` an external URI. With `--config` and more than one server selected, `--out` is rejected (every server would overwrite the same file) - give each server its own `output` in the config, or select a single alias.
 
 ### `mcp-tada check`
 
