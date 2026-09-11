@@ -67,6 +67,24 @@ Off-the-shelf type-level mappers were measured at over 12 million type instantia
 
 ## CLI
 
+### `mcp-tada init`
+
+Writes `mcp-tada.config.json` from the servers your project already configures for its editor or agent, so the first `introspect` needs no flags. It reads the first of `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, or the Claude Desktop config, or the file given with `--from`, and gives every server an `output` under `src/` (or `--out-dir`). Values in `env` and `headers` are copied verbatim, and `init` warns about any that look like secrets. `--force` overwrites an existing config.
+
+```sh
+mcp-tada init
+mcp-tada init --from ~/Library/Application\ Support/Claude/claude_desktop_config.json --out-dir src/mcp
+```
+
+### `mcp-tada doctor`
+
+Runs the setup checks people otherwise discover one failed command at a time: the installed `@modelcontextprotocol/sdk` and `typescript` versions, that the config loads and no two servers share an `output`, that each snapshot exists and parses back, and, unless `--offline`, that each server answers and still matches its snapshot. Exits 1 on any failure. Warnings alone exit 0.
+
+```sh
+mcp-tada doctor
+mcp-tada doctor --offline --config mcp-tada.config.json
+```
+
 ### `mcp-tada introspect`
 
 ```sh

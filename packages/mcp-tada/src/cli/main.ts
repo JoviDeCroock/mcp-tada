@@ -15,14 +15,22 @@ import {
 } from "./connect.js";
 import { introspect } from "./introspect.js";
 import { check } from "./check.js";
+import { init } from "./init.js";
+import { doctor } from "./doctor.js";
 
 const HELP = `mcp-tada: typed tool calls derived from a live server's tools/list
 
 Usage:
+  mcp-tada init [--from <path>] [--out-dir <dir>] [--force]
+  mcp-tada doctor [--config <path>] [--offline] [--timeout <ms>]
   mcp-tada introspect [target flags] [--out <path>] [--name <TypeName>] [--json] [--verbose]
   mcp-tada check [target flags] --against <path>
   mcp-tada --help
   mcp-tada --version
+
+init writes mcp-tada.config.json from the servers in .mcp.json, .cursor/mcp.json, .vscode/mcp.json
+or the Claude Desktop config (first found), or from --from <path>. doctor checks installed
+versions, the config, every snapshot, and (unless --offline) that each server answers.
 
 Target flags (one of):
   --command "node server.js"     stdio server, whitespace-split like --stdio
@@ -292,6 +300,98 @@ async function runCheck(argv: string[]): Promise<number> {
   return runCheckWith({ ...values, aliasFilter: positionals[0] });
 }
 
+export interface RunInitArgs {
+  from?: string;
+  "out-dir"?: string;
+  force?: boolean;
+  config?: string;
+  help?: boolean;
+}
+
+/** Core of `mcp-tada init`: import servers into a config and print what to do next. */
+export function runInitWith(values: RunInitArgs): number {
+  if (values.help) {
+    console.log(HELP);
+    return 0;
+  }
+  let result;
+  try {
+    result = init({
+      ...(values.from !== undefined ? { from: values.from } : {}),
+      ...(values["out-dir"] !== undefined ? { outDir: values["out-dir"] } : {}),
+      ...(values.config !== undefined ? { configPath: values.config } : {}),
+      ...(values.force !== undefined ? { force: values.force } : {}),
+    });
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    return 1;
+  }
+  const aliases = Object.keys(result.config.servers);
+  console.error(`mcp-tada init: imported ${aliases.join(", ")} from ${result.source}`);
+  for (const warning of result.warnings) console.error(`mcp-tada init: ${warning}`);
+  console.error(
+    "\nNext:\n  mcp-tada introspect        # write each server's snapshot\n" +
+      "  mcp-tada check             # in CI, fail when a server drifts from its snapshot",
+  );
+  return 0;
+}
+
+async function runInit(argv: string[]): Promise<number> {
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      from: { type: "string" },
+      "out-dir": { type: "string" },
+      force: { type: "boolean" },
+      config: { type: "string" },
+      help: { type: "boolean" },
+    },
+  });
+  return runInitWith(values);
+}
+
+export interface RunDoctorArgs {
+  config?: string;
+  offline?: boolean;
+  timeout?: string;
+  help?: boolean;
+}
+
+/** Core of `mcp-tada doctor`: exit 1 when any check fails; warnings alone exit 0. */
+export async function runDoctorWith(values: RunDoctorArgs): Promise<number> {
+  if (values.help) {
+    console.log(HELP);
+    return 0;
+  }
+  let timeoutMs: number | undefined;
+  try {
+    timeoutMs = parseTimeoutFlag(values.timeout);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    return 1;
+  }
+  const result = await doctor({
+    ...(values.config !== undefined ? { configPath: values.config } : {}),
+    ...(values.offline ? { connect: false } : {}),
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+  });
+  process.stdout.write(result.text);
+  return result.ok ? 0 : 1;
+}
+
+async function runDoctor(argv: string[]): Promise<number> {
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      config: { type: "string" },
+      offline: { type: "boolean" },
+      timeout: { type: "string" },
+      help: { type: "boolean" },
+    },
+  });
+  return runDoctorWith(values);
+}
+
 function readVersion(): string {
   try {
     const here = dirname(fileURLToPath(import.meta.url));
@@ -314,6 +414,10 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   switch (sub) {
+    case "init":
+      return runInit(rest);
+    case "doctor":
+      return runDoctor(rest);
     case "introspect":
       return runIntrospect(rest);
     case "check":

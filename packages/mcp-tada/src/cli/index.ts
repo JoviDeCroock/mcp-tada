@@ -39,6 +39,25 @@ export {
   type CheckRunResult,
 } from "./check.js";
 export {
+  DEFAULT_CONFIG_PATH,
+  candidateSources,
+  init,
+  type InitOptions,
+  type InitResult,
+} from "./init.js";
+export {
+  MIN_SDK_VERSION,
+  MIN_TYPESCRIPT_VERSION,
+  doctor,
+  formatDoctorReport,
+  installedVersion,
+  versionAtLeast,
+  type DoctorCheck,
+  type DoctorOptions,
+  type DoctorResult,
+  type DoctorStatus,
+} from "./doctor.js";
+export {
   detectFormat,
   parseDtsSnapshot,
   parseSnapshotText,

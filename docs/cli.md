@@ -2,8 +2,9 @@
 
 A zero-runtime typed client for Model Context Protocol tool
 calls, derived from a generated `introspection.d.ts` snapshot of a server's `tools/list`. This
-document covers the CLI: `introspect` (generate the snapshot) and `check` (diff a live server
-against a snapshot), plus `--help` and `--version`.
+document covers the CLI: `init` (write a config from an existing server list), `doctor` (check
+the setup), `introspect` (generate the snapshot) and `check` (diff a live server against a
+snapshot), plus `--help` and `--version`.
 
 ## Install
 
@@ -12,6 +13,58 @@ npm install -D mcp-tada
 ```
 
 The `mcp-tada` binary is installed by the package (`bin/mcp-tada.js`).
+
+## `mcp-tada init`
+
+```
+mcp-tada init [--from <path>] [--out-dir <dir>] [--config <path>] [--force]
+```
+
+Writes an `mcp-tada.config.json` from an MCP server list the project already has. Without
+`--from`, the first of these that exists is used, in this order: `.mcp.json` (Claude Code),
+`.cursor/mcp.json`, `.vscode/mcp.json` (a `servers` block), then the user's Claude Desktop
+config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS,
+`%APPDATA%\Claude\claude_desktop_config.json` on Windows, `$XDG_CONFIG_HOME/Claude/...` or
+`~/.config/Claude/...` elsewhere). Project files come first so a project-scoped list wins over a
+machine-wide one. When none exists, `init` exits 1 and prints every path it looked at.
+
+Each imported server keeps its `command`/`args`/`env` or `url`/`headers` and gets an `output` of
+`<out-dir>/<alias>.introspection.d.ts`, where `<out-dir>` is `--out-dir`, or `src` when that
+directory exists, or the current directory. Characters in an alias that are not letters, digits,
+`.`, `_`, or `-` become `-` in the file name; the alias itself is kept as the config key. An entry
+with neither `command` nor `url` is skipped with a warning.
+
+`env` and `headers` are copied verbatim. Keys that look like secrets (`key`, `token`, `secret`,
+`password`, `authorization`, `credential`, case-insensitive) are named in a warning, since the
+config is meant to be committed. `--config` changes where the file is written (default
+`mcp-tada.config.json`); an existing file is refused unless `--force` is given, and an identical
+file is left untouched. On success the imported aliases and the next commands to run are printed
+to stderr.
+
+## `mcp-tada doctor`
+
+```
+mcp-tada doctor [--config <path>] [--offline] [--timeout <ms>]
+```
+
+Runs the setup checks in order and prints one line per check, prefixed `ok`, `warn`, or `fail`:
+
+- `@modelcontextprotocol/sdk` is installed (`fail` otherwise) and at least 1.20.0 (`warn`
+  otherwise); `typescript` is installed and at least 5.4.0 (`warn` otherwise). Both are found by
+  looking for `node_modules/<name>/package.json` in the current directory and its parents.
+- The config (`--config`, default `mcp-tada.config.json`) exists and loads (`fail` otherwise),
+  and configures at least one server (`warn` otherwise).
+- No two servers share an `output` (`fail`), and every server has a `command` or `url` (`fail`).
+- Each server's snapshot exists (`warn` with the `introspect` command to run otherwise) and
+  parses back (`fail` otherwise).
+- Unless `--offline`, each server is connected to and its tools listed. A server that answers is
+  `ok`, with its name, version, and tool count, and `warn` when the live tools differ from the
+  snapshot (with the `check` command to run). A server that cannot be reached is `fail`.
+  `--timeout <ms>` applies to each connect and list, with a server's `timeoutMs` in the config
+  taking precedence; the default is 30000.
+
+The exit code is 1 when any check is `fail`, and 0 otherwise. Warnings never change it, so
+`doctor` can run before the first `introspect`.
 
 ## `mcp-tada introspect`
 
@@ -270,3 +323,10 @@ The building blocks are exported too, for tooling that wants to compose its own 
 (`buildIntrospectionData`, `formatDts` and `formatJson` take that `{ tools, prompts? }` source, or
 a bare `Tool[]`); `diffIntrospection` and `formatReport` on the check side; and
 `parseSnapshotText`, `parseDtsSnapshot`, and `detectFormat` for reading a snapshot back.
+
+`init(options)` and `doctor(options)` are exported as well. `init` takes `cwd`, `from`, `outDir`,
+`configPath`, `force`, and `write` (false to only compute), and returns `{ configPath, source,
+config, text, wrote, warnings }`; `candidateSources(cwd)` lists the files it would search.
+`doctor` takes `cwd`, `configPath`, `connect` (false for `--offline`), and `timeoutMs`, and
+returns `{ checks, ok, text }`, where each check is `{ status, subject, detail }` with `status`
+one of `"ok"`, `"warn"`, or `"fail"`, and `ok` is false when any check failed.
