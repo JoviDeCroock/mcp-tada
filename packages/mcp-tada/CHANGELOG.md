@@ -1,5 +1,24 @@
 # mcp-tada
 
+## 0.3.0
+
+### Minor Changes
+
+- [#14](https://github.com/JoviDeCroock/mcp-tada/pull/14) [`a38a46f`](https://github.com/JoviDeCroock/mcp-tada/commit/a38a46f885c4b67ec022d430773f84c1e1e43890) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `mcp-tada check` now rates every difference as additive, dangerous (a tool withdrew a safety hint
+  such as `readOnlyHint`), or breaking, groups the report by severity, and takes
+  `--fail-on <any|dangerous|breaking>` to choose which of those exits 1. A schema difference is
+  judged by direction: tightening an `inputSchema` or loosening an `outputSchema` breaks callers,
+  the reverse is additive. `report.severity` and `report.changes` expose the same classification
+  to the programmatic API, and `compareSchemas` is exported for diffing two schemas on their own.
+
+- [#13](https://github.com/JoviDeCroock/mcp-tada/pull/13) [`9295ff4`](https://github.com/JoviDeCroock/mcp-tada/commit/9295ff4c3c0ae3fdd6ec6663096a49f94f7a8af2) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Show tool documentation on hover. `mcp.tools.<name>` (and the `readOnly` view) now maps homomorphically over the snapshot, so the tool's JSDoc reaches the editor instead of being dropped by the mapped type. `mcp-tada introspect` also emits each argument's `description` as a `@param args.<name>` tag, falls back to `annotations.title` when a tool has no top-level `title`, and prefixes every line of a multi-line description with ` * `. Regenerate snapshots to pick up the new comments; `check` ignores JSDoc, so existing snapshots keep passing.
+
+- [#11](https://github.com/JoviDeCroock/mcp-tada/pull/11) [`2eb350c`](https://github.com/JoviDeCroock/mcp-tada/commit/2eb350c4f18d6cae8694532161d3ff86ac14975b) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add `mockMcpTada` under `mcp-tada/testing`, a typed in-memory `TypedClient` whose handlers are checked against the snapshot and which records every call for assertions.
+
+### Patch Changes
+
+- [#16](https://github.com/JoviDeCroock/mcp-tada/pull/16) [`c189159`](https://github.com/JoviDeCroock/mcp-tada/commit/c189159f8b33cc9ebd4207048b8db608a1d84fb5) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The package now ships agent skills under `skills/` (integration, CLI, snapshots, and type mapping) for copying or linking into a project's `.claude/skills/`.
+
 ## 0.2.0
 
 ### Minor Changes

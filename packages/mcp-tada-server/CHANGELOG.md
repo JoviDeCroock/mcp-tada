@@ -1,5 +1,12 @@
 # mcp-tada-server
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [[`a38a46f`](https://github.com/JoviDeCroock/mcp-tada/commit/a38a46f885c4b67ec022d430773f84c1e1e43890), [`9295ff4`](https://github.com/JoviDeCroock/mcp-tada/commit/9295ff4c3c0ae3fdd6ec6663096a49f94f7a8af2), [`c189159`](https://github.com/JoviDeCroock/mcp-tada/commit/c189159f8b33cc9ebd4207048b8db608a1d84fb5), [`2eb350c`](https://github.com/JoviDeCroock/mcp-tada/commit/2eb350c4f18d6cae8694532161d3ff86ac14975b)]:
+  - mcp-tada@0.3.0
+
 ## 0.1.0
 
 ### Minor Changes

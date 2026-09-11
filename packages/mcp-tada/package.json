@@ -1,6 +1,6 @@
 {
   "name": "mcp-tada",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Zero-runtime, compile-time typed tool calls derived from a live server's tools/list",
   "type": "module",
   "license": "MIT",
