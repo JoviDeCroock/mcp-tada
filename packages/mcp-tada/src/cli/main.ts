@@ -14,7 +14,8 @@ import {
   type ServerTarget,
 } from "./connect.js";
 import { introspect } from "./introspect.js";
-import { check } from "./check.js";
+import { check, type Severity } from "./check.js";
+import { atLeast } from "./compat.js";
 import { init } from "./init.js";
 import { doctor } from "./doctor.js";
 
@@ -24,7 +25,7 @@ Usage:
   mcp-tada init [--from <path>] [--out-dir <dir>] [--force]
   mcp-tada doctor [--config <path>] [--offline] [--timeout <ms>]
   mcp-tada introspect [target flags] [--out <path>] [--name <TypeName>] [--json] [--verbose]
-  mcp-tada check [target flags] --against <path>
+  mcp-tada check [target flags] --against <path> [--fail-on <level>]
   mcp-tada --help
   mcp-tada --version
 
@@ -45,10 +46,24 @@ Target flags (one of):
   --timeout <ms>                 connect and tools/list timeout, default 30000 (overrides a
                                   server's "timeoutMs" in --config)
 
+check flags:
+  --fail-on <level>              the least severe difference that exits 1: "any" (default),
+                                  "dangerous" (a tool withdrew a safety hint, or worse), or
+                                  "breaking" (a removed tool, a newly required argument, a
+                                  narrowed input or widened output schema). Milder differences
+                                  are still reported.
+
 With --config and more than one server selected, --out is rejected: it would make every server
 overwrite the same file. Use each server's "output" in the config, or select one alias.
 
 See docs/cli.md for the config file format and more examples.`;
+
+/** `--fail-on` values, mapped to the severity threshold they set. */
+const FAIL_ON: Record<string, Severity> = {
+  any: "additive",
+  dangerous: "dangerous",
+  breaking: "breaking",
+};
 
 interface TargetFlagValues {
   command?: string;
@@ -220,6 +235,7 @@ async function runIntrospect(argv: string[]): Promise<number> {
 
 export interface RunCheckArgs extends TargetFlagValues {
   against?: string;
+  "fail-on"?: string;
   help?: boolean;
   aliasFilter?: string | undefined;
 }
@@ -239,52 +255,70 @@ export async function runCheckWith(values: RunCheckArgs): Promise<number> {
     return 1;
   }
 
+  const failOn = values["fail-on"] ?? "any";
+  const threshold = FAIL_ON[failOn];
+  if (!threshold) {
+    console.error(
+      `mcp-tada check: unknown --fail-on level ${JSON.stringify(failOn)}, expected one of ${Object.keys(FAIL_ON).join(", ")}`,
+    );
+    return 1;
+  }
+
+  // One (target, snapshot) pair per server to check, from the flags or from the config.
+  const runs: Array<{ target: ServerTarget; against: string }> = [];
+  let failed = false;
   const explicitTarget = targetFromFlags(values);
   if (explicitTarget) {
     if (!values.against) {
       console.error("mcp-tada check: --against <path> is required");
       return 1;
     }
-    const { report, text } = await check({ target: explicitTarget, against: values.against });
-    process.stdout.write(text);
-    return report.identical ? 0 : 1;
+    runs.push({ target: explicitTarget, against: values.against });
+  } else {
+    const configPath =
+      values.config ?? (existsSync("mcp-tada.config.json") ? "mcp-tada.config.json" : undefined);
+    if (!configPath) {
+      console.error(
+        "mcp-tada check: no target specified. Pass --command/--stdio/--url, or --config.",
+      );
+      return 1;
+    }
+    const config = loadConfig(configPath);
+    const aliasFilter = values.aliasFilter;
+    const aliases = aliasFilter ? [aliasFilter] : Object.keys(config.servers);
+    if (aliasFilter && !config.servers[aliasFilter]) {
+      console.error(`mcp-tada check: no server "${aliasFilter}" in ${configPath}`);
+      return 1;
+    }
+    for (const alias of aliases) {
+      const entry = config.servers[alias];
+      if (!entry) continue;
+      const against = values.against ?? entry.output;
+      if (!against) {
+        console.error(
+          `mcp-tada check: ${alias} has no "output" in ${configPath} and no --against was given`,
+        );
+        failed = true;
+        continue;
+      }
+      runs.push({ target: configEntryToTarget(entry, timeoutMs), against });
+    }
   }
 
-  const configPath =
-    values.config ?? (existsSync("mcp-tada.config.json") ? "mcp-tada.config.json" : undefined);
-  if (!configPath) {
-    console.error(
-      "mcp-tada check: no target specified. Pass --command/--stdio/--url, or --config.",
-    );
-    return 1;
-  }
-  const config = loadConfig(configPath);
-  const aliasFilter = values.aliasFilter;
-  const aliases = aliasFilter ? [aliasFilter] : Object.keys(config.servers);
-  if (aliasFilter && !config.servers[aliasFilter]) {
-    console.error(`mcp-tada check: no server "${aliasFilter}" in ${configPath}`);
-    return 1;
-  }
-  let anyDiff = false;
-  for (const alias of aliases) {
-    const entry = config.servers[alias];
-    if (!entry) continue;
-    const against = values.against ?? entry.output;
-    if (!against) {
-      console.error(
-        `mcp-tada check: ${alias} has no "output" in ${configPath} and no --against was given`,
-      );
-      anyDiff = true;
-      continue;
-    }
-    const { report, text } = await check({
-      target: configEntryToTarget(entry, timeoutMs),
-      against,
-    });
+  let drifted = false;
+  for (const run of runs) {
+    const { report, text } = await check(run);
     process.stdout.write(text);
-    if (!report.identical) anyDiff = true;
+    drifted ||= !report.identical;
+    failed ||= !report.identical && atLeast(report.severity, threshold);
   }
-  return anyDiff ? 1 : 0;
+  // A green run with a non-empty report should still say why it is green.
+  if (drifted && !failed) {
+    console.error(
+      `mcp-tada check: nothing ${failOn} or worse, passing because of --fail-on ${failOn}`,
+    );
+  }
+  return failed ? 1 : 0;
 }
 
 async function runCheck(argv: string[]): Promise<number> {
@@ -293,6 +327,7 @@ async function runCheck(argv: string[]): Promise<number> {
     options: {
       ...TARGET_OPTIONS,
       against: { type: "string" },
+      "fail-on": { type: "string" },
       help: { type: "boolean" },
     },
     allowPositionals: true,

@@ -213,14 +213,17 @@ export async function doctor(opts: DoctorOptions = {}): Promise<DoctorResult> {
         const count = Object.keys(live.tools).length;
         if (snapshot === undefined) {
           push("ok", alias, `reachable: ${name}, ${count} tools`);
-        } else if (diffIntrospection(snapshot, live).identical) {
-          push("ok", alias, `reachable: ${name}, ${count} tools, snapshot up to date`);
         } else {
-          push(
-            "warn",
-            alias,
-            `reachable: ${name}, ${count} tools, snapshot differs (run \`mcp-tada check ${alias}\`)`,
-          );
+          const report = diffIntrospection(snapshot, live);
+          if (report.identical) {
+            push("ok", alias, `reachable: ${name}, ${count} tools, snapshot up to date`);
+          } else {
+            push(
+              "warn",
+              alias,
+              `reachable: ${name}, ${count} tools, snapshot differs (${report.severity}; run \`mcp-tada check ${alias}\`)`,
+            );
+          }
         }
       } catch (err) {
         push("fail", alias, `unreachable: ${(err as Error).message}`);

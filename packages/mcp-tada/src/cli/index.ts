@@ -34,10 +34,14 @@ export {
   check,
   diffIntrospection,
   formatReport,
+  type CheckChange,
+  type CheckChangeKind,
   type CheckOptions,
   type CheckReport,
   type CheckRunResult,
+  type Severity,
 } from "./check.js";
+export { compareSchemas, type SchemaChange, type SchemaDirection } from "./compat.js";
 export {
   DEFAULT_CONFIG_PATH,
   candidateSources,
