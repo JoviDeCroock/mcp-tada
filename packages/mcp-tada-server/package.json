@@ -1,6 +1,6 @@
 {
   "name": "mcp-tada-server",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "description": "Declare MCP tools once, with input/output JSON Schema and typed handlers, and get the same introspection type mcp-tada introspect would generate",
   "type": "module",
   "license": "MIT",
