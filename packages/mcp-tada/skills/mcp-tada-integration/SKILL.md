@@ -1,6 +1,6 @@
 ---
 name: mcp-tada-integration
-description: Wire mcp-tada into a project so MCP tool calls are typed at compile time - config, snapshot, typed client, read-only views, multi-server clients, and the CI steps that keep the snapshot honest. Use when writing or reviewing code that calls an MCP server through mcp-tada.
+description: Wire mcp-tada into a project so MCP tool calls are typed at compile time - config, snapshot, typed client, read-only views, multi-server clients, the in-memory mock client for tests, and the CI steps that keep the snapshot honest. Use when writing or reviewing code that calls an MCP server through mcp-tada.
 ---
 
 # Using mcp-tada in a project
@@ -56,6 +56,36 @@ if (!result.isError) result.structuredContent; // typed from outputSchema, else 
   `servers.<alias>.getPrompt(...)`.
 - For a code-mode agent, give the model the snapshot text as the API declaration and let its
   program call `mcp.tools.*` in a sandbox. `node:vm` isolates scope, not privileges.
+
+## Testing
+
+`mcp-tada/testing` exports `mockMcpTada<introspection>({ tools, prompts })`, a `TypedClient`
+backed by in-memory handlers instead of a server, so code that takes a typed client can be
+tested without spawning one.
+
+```ts
+import { mockMcpTada } from "mcp-tada/testing";
+
+const mcp = mockMcpTada<introspection>({
+  tools: {
+    read_file: ({ path }) => ({ content: [{ type: "text", text: `contents of ${path}` }] }),
+    get_weather: ({ city }) => ({ temperature: 20, conditions: `sunny in ${city}` }),
+  },
+});
+
+await runAgent(mcp);
+expect(mcp.calls).toEqual([{ name: "read_file", args: { path: "README.md" } }]);
+```
+
+- Handler arguments are typed from the tool's `inputSchema`. A tool with an `outputSchema` may
+  return the bare `structuredContent`; the mock wraps it the way an SDK server would. A tool
+  without one must return a full result.
+- Both maps are partial. An unmocked tool or prompt throws, naming it, so a test only describes
+  what it exercises.
+- `calls` and `promptCalls` are unions on `name`, so `call.name === "x"` narrows `args`.
+  `reset()` clears them.
+- It is a real `TypedClient`, so `readOnly` and `combineMcpTada` accept it. `client` throws on
+  access, since there is no SDK client behind it, and `listTools()` reports the mocked names only.
 
 ## CI
 
