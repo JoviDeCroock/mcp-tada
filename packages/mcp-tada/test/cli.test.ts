@@ -6,7 +6,7 @@ import type { ServerTarget } from "../src/cli/connect.js";
 import { introspect } from "../src/cli/introspect.js";
 import { check } from "../src/cli/check.js";
 import { parseDtsSnapshot, parseSnapshotText, detectFormat } from "../src/cli/snapshot.js";
-import { runIntrospectWith } from "../src/cli/main.js";
+import { runCheckWith, runIntrospectWith } from "../src/cli/main.js";
 
 const EVERYTHING_SERVER = "node_modules/@modelcontextprotocol/server-everything/dist/index.js";
 
@@ -156,7 +156,7 @@ describe("check", () => {
     expect(report.promptsAdded).toEqual(["simple-prompt"]);
     expect(report.promptsRemoved).toEqual(["retired-prompt"]);
     expect(report.promptsChanged).toEqual(["args-prompt"]);
-    expect(text).toContain("prompt arguments changed: args-prompt");
+    expect(text).toContain("args-prompt: prompt arguments changed");
   }, 30_000);
 
   it("treats a snapshot taken before prompts were recorded as having none", async () => {
@@ -190,8 +190,48 @@ describe("check", () => {
     expect(report.identical).toBe(false);
     expect(report.annotationsChanged).toEqual(["echo", "get-env", "gzip-file-as-resource"]);
     expect(report.safetyWeakened).toEqual(["gzip-file-as-resource"]);
-    expect(text).toContain("annotations changed: echo, get-env, gzip-file-as-resource");
-    expect(text).toContain("no longer read-only or non-destructive: gzip-file-as-resource");
+    expect(text).toContain("echo: annotations changed");
+    expect(text).toContain("get-env: annotations changed");
+    expect(text).toContain("gzip-file-as-resource: lost a safety guarantee");
+    expect(report.severity).toBe("dangerous");
+  }, 30_000);
+
+  it("exits 0 on additive drift with --fail-on breaking, and 1 without it", async () => {
+    const out = tmpFile("introspection.json");
+    const result = await introspect({ target, out, json: true });
+    const data = JSON.parse(result.text) as { tools: Record<string, unknown> };
+    // A tool the live server has and the snapshot does not: purely additive.
+    delete data.tools["echo"];
+    writeFileSync(out, JSON.stringify(data, null, 2));
+
+    const flags = { command: `node ${EVERYTHING_SERVER}`, against: out };
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await runCheckWith({ ...flags, "fail-on": "breaking" })).toBe(0);
+      expect(await runCheckWith({ ...flags, "fail-on": "dangerous" })).toBe(0);
+      expect(errorSpy.mock.calls.flat().join("\n")).toContain(
+        "passing because of --fail-on breaking",
+      );
+      expect(await runCheckWith(flags)).toBe(1);
+      expect(await runCheckWith({ ...flags, "fail-on": "sometimes" })).toBe(1);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  }, 60_000);
+
+  it("exits 1 on breaking drift even with --fail-on breaking", async () => {
+    const out = tmpFile("introspection.json");
+    const result = await introspect({ target, out, json: true });
+    const data = JSON.parse(result.text) as { tools: Record<string, unknown> };
+    data.tools["a-tool-that-no-longer-exists"] = { inputSchema: { type: "object" } };
+    writeFileSync(out, JSON.stringify(data, null, 2));
+
+    const code = await runCheckWith({
+      command: `node ${EVERYTHING_SERVER}`,
+      against: out,
+      "fail-on": "breaking",
+    });
+    expect(code).toBe(1);
   }, 30_000);
 });
 

@@ -206,22 +206,65 @@ mcp-tada check --command "node server.js" --against introspection.d.ts
 `introspect --json`; the format is inferred from the extension. Target flags are the same as
 `introspect`.
 
-The report lists, when present:
+The report covers added and removed tools, tools whose `inputSchema`, `outputSchema` or
+`annotations` changed, and added, removed or re-argued prompts. A snapshot without a `prompts`
+key is diffed as having none, so a server that offers prompts shows them all as added until the
+snapshot is regenerated.
 
-- added tools (live but not in the snapshot)
-- removed tools (in the snapshot but no longer live)
-- tools whose `inputSchema` changed
-- tools whose `outputSchema` appeared, disappeared, or changed shape
-- tools whose `annotations` appeared, disappeared, or changed, and, on a separate line, the
-  subset that lost a safety guarantee: `readOnlyHint` was `true` and no longer is, or
-  `destructiveHint` was `false` and no longer is
-- added and removed prompts, and prompts whose argument list changed (names, order, or
-  `required` flags). A snapshot without a `prompts` key is diffed as having none, so a server
-  that offers prompts shows them all as added until the snapshot is regenerated.
+Every difference gets a severity, and the report is grouped by it, worst first, with the reason
+under each entry:
+
+- **breaking**: code written against the snapshot can stop working. A removed tool or prompt, a
+  disappeared `outputSchema`, a newly required prompt argument, or a schema change that goes the
+  wrong way.
+- **dangerous**: the contract still holds, but a behavioural guarantee was withdrawn. A tool
+  whose `readOnlyHint` or `idempotentHint` was `true` and no longer is, or whose
+  `destructiveHint` or `openWorldHint` was `false` and no longer is. Code that trusted the hint
+  still compiles and runs, which is exactly the problem.
+- **additive**: everything else. A new tool or prompt, a new optional property, a reworded
+  `description`, a looser input schema.
+
+```
+mcp-tada check: differences from src/introspection.d.ts (1 breaking, 1 dangerous, 2 additive)
+  breaking:
+    search: inputSchema changed
+      .limit: is now required
+      .cursor: property added (additive)
+  dangerous:
+    delete-file: lost a safety guarantee
+      destructiveHint is no longer false
+  additive:
+    search: outputSchema appeared
+    summarize: added tool
+```
+
+Schema direction decides which way is wrong. An `inputSchema` is written by the caller, so
+tightening it breaks calls (a new required property, a narrowed `type`, a shrunk `enum`, a
+stricter bound, `additionalProperties` turned off) while loosening it is additive. An
+`outputSchema` is read by the caller, so the rules invert: a property that is no longer required,
+a widened `type`, or a grown `enum` is breaking, and a new property or a tightened constraint is
+additive. A removed property is breaking in both directions. Anything `check` cannot model - an
+unrecognized keyword, a changed `$ref`, two incomparable `pattern`s - counts as breaking, so a
+schema it does not understand is never silently waved through. Changes to `description`,
+`title`, `default` and friends are additive, and so is reordering the values of an `enum`.
 
 Exit code is `1` if there is any difference, `0` if the live server matches the snapshot
 exactly. This makes `mcp-tada check --against introspection.d.ts` a good CI step to catch a
 server's tool contract drifting out from under your generated types.
+
+`--fail-on <level>` raises the bar: `--fail-on dangerous` exits `1` for dangerous and breaking
+differences, `--fail-on breaking` for breaking ones only, and `--fail-on any` (the default) for
+everything. Milder differences are still printed, and the run notes that it passed because of the
+flag. `dangerous` is the setting for a server you do not control and that adds tools regularly:
+it fails when the server takes something away or withdraws a promise, and stays quiet when it
+only gives you more.
+
+```
+mcp-tada check --fail-on dangerous
+```
+
+Since milder drift still leaves the snapshot stale, pair it with a scheduled job that runs
+`mcp-tada introspect` and commits the result, or run plain `mcp-tada check` on a nightly build.
 
 ## Config file
 
@@ -309,7 +352,14 @@ if (!report.identical) throw new Error(text);
 `name`, `json`, and `verbose` options as the flags. `check(options)` re-introspects and returns
 `{ report, text }`, where `report` has `added`, `removed`, `inputChanged`, `outputAppeared`,
 `outputDisappeared`, `outputChanged`, `annotationsChanged`, `safetyWeakened`, `promptsAdded`,
-`promptsRemoved`, `promptsChanged`, and `identical`.
+`promptsRemoved`, `promptsChanged`, and `identical`, plus `changes` and `severity`. `changes` is
+the same set of differences as one flat list, each `{ kind, subject, severity, summary, reasons }`
+with `severity` one of `"additive"`, `"dangerous"` or `"breaking"` and `kind` one of
+`"toolAdded"`, `"toolRemoved"`, `"inputSchema"`, `"outputSchemaAppeared"`,
+`"outputSchemaDisappeared"`, `"outputSchema"`, `"annotations"`, `"promptAdded"`,
+`"promptRemoved"` or `"promptArguments"`, ordered worst first. `report.severity` is the worst
+severity present (`"additive"` when the report is identical), which is what `--fail-on`
+compares against.
 
 A `ServerTarget` is `{ command?, args?, env?, url?, headers?, timeoutMs? }`, the normalized form of
 the target flags. Unlike the CLI, no default timeout is applied unless you set `timeoutMs`
@@ -323,6 +373,9 @@ The building blocks are exported too, for tooling that wants to compose its own 
 (`buildIntrospectionData`, `formatDts` and `formatJson` take that `{ tools, prompts? }` source, or
 a bare `Tool[]`); `diffIntrospection` and `formatReport` on the check side; and
 `parseSnapshotText`, `parseDtsSnapshot`, and `detectFormat` for reading a snapshot back.
+`compareSchemas(before, after, "input" | "output")` is the classifier on its own, returning
+`{ path, severity, message }` per difference, for tooling that wants to diff two schemas without
+a server.
 
 `init(options)` and `doctor(options)` are exported as well. `init` takes `cwd`, `from`, `outDir`,
 `configPath`, `force`, and `write` (false to only compute), and returns `{ configPath, source,

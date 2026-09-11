@@ -102,10 +102,32 @@ Flags: `--stdio` or `--command` plus repeatable `--arg` and `--env KEY=VAL`; `--
 
 ### `mcp-tada check`
 
-Diffs a live server against a snapshot and exits 1 on any drift: added or removed tools, changed input schemas, changed or newly present output schemas, changed annotations, and added, removed, or re-argued prompts. A tool that stopped being read-only or non-destructive is called out on its own line, since code written against the old snapshot may be trusting that hint. Run it in CI. Accepts the same target flags as `introspect`, including `--timeout <ms>`.
+Diffs a live server against a snapshot and exits 1 on any drift: added or removed tools, changed input schemas, changed or newly present output schemas, changed annotations, and added, removed, or re-argued prompts. Run it in CI. Accepts the same target flags as `introspect`, including `--timeout <ms>`.
 
 ```sh
 mcp-tada check --stdio "npx -y @modelcontextprotocol/server-filesystem ." --against src/fs.introspection.d.ts
+```
+
+Each difference gets a severity, and the report is grouped by it, with the reason underneath:
+
+```
+mcp-tada check: differences from src/fs.introspection.d.ts (1 breaking, 1 dangerous, 1 additive)
+  breaking:
+    search: inputSchema changed
+      .limit: is now required
+  dangerous:
+    delete-file: lost a safety guarantee
+      destructiveHint is no longer false
+  additive:
+    summarize: added tool
+```
+
+Breaking means code written against the snapshot can stop working: a tool or prompt that went away, a newly required argument, an input schema that got stricter, an output schema that got looser. Direction matters, so the same edit is breaking on the way in and additive on the way out. Dangerous means the contract still holds but a tool withdrew a promise: it stopped being read-only, idempotent, non-destructive, or closed-world. Anything `check` cannot model counts as breaking rather than being waved through.
+
+`--fail-on <level>` sets the least severe difference that fails the build: `any` (the default), `dangerous`, or `breaking`. Milder drift is still printed. `dangerous` is the setting for a server you do not control and that ships new tools regularly.
+
+```sh
+mcp-tada check --fail-on dangerous
 ```
 
 ### Config file
@@ -174,7 +196,7 @@ The snapshot is a committed file, and the commands map onto the moments where it
 - **Setup.** List each server and its `output` in `mcp-tada.config.json`, then run `mcp-tada introspect` to write one snapshot per server. Commit the snapshots.
 - **Editing.** Types come from the committed snapshot, so nothing runs while you edit. Re-run `introspect` when you upgrade a server or change one you author; the file is left alone when nothing changed, so it is cheap to run often.
 - **Committing.** The snapshot changes only when a server's contract does, which makes its diff a review artifact: a widened input, a new `outputSchema`, or a tool that stopped being read-only shows up in the pull request next to the code that relies on it.
-- **CI.** Run `mcp-tada check` to fail when a live server has drifted from the snapshot, and `mcp-tada introspect` followed by `git diff --exit-code` to fail when someone forgot to commit a regenerated one. Both need the servers reachable from CI, so put secrets in `env` through the runner's environment rather than in the config.
+- **CI.** Run `mcp-tada check` to fail when a live server has drifted from the snapshot (or `mcp-tada check --fail-on dangerous` to ignore drift that only adds things), and `mcp-tada introspect` followed by `git diff --exit-code` to fail when someone forgot to commit a regenerated one. Both need the servers reachable from CI, so put secrets in `env` through the runner's environment rather than in the config.
 
 ```yaml
 - run: pnpm mcp-tada introspect
