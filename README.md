@@ -241,6 +241,14 @@ const mcp = initMcpTada<IntrospectionOf<typeof tools>>().typed(client);
 pnpm --filter @mcp-tada/example-deepwiki start
 ```
 
+## Agent skills
+
+The package ships four [agent skills](https://agentskills.io) under `skills/`, one `SKILL.md` per directory: `mcp-tada-integration` (wiring the client into a project), `mcp-tada-cli` (running or scripting the CLI), `mcp-tada-snapshots` (regenerating snapshots and reading a `check` report), and `mcp-tada-type-mapper` (how schemas map to types). Copy or symlink them into your project's skills directory, for example `.claude/skills/`:
+
+```sh
+ln -s ../../node_modules/mcp-tada/skills/mcp-tada-integration .claude/skills/mcp-tada-integration
+```
+
 ## Development
 
 ```sh
