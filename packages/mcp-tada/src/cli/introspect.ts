@@ -203,21 +203,51 @@ function jsonReindented(value: unknown, indent: number): string {
     .join("\n");
 }
 
+// Every physical line gets its own ` * ` prefix, so a multi-line description still reads as one
+// JSDoc block instead of leaving bare lines inside the comment.
 function buildJsDoc(lines: string[], indent: string): string | undefined {
   if (lines.length === 0) return undefined;
-  const body = lines.map((l) => `${indent} * ${l.replace(/\*\//g, "*\\/")}`).join("\n");
+  const body = lines
+    .flatMap((l) => l.replace(/\*\//g, "*\\/").split("\n"))
+    .map((l) => (l === "" ? `${indent} *` : `${indent} * ${l}`))
+    .join("\n");
   return `${indent}/**\n${body}\n${indent} */`;
 }
 
+// The description of each top-level `inputSchema` property, in schema order. Nested schemas
+// are not walked: the tags document the `args` object as the caller writes it.
+function argumentDescriptions(inputSchema: unknown): Array<[name: string, description: string]> {
+  const out: Array<[string, string]> = [];
+  if (typeof inputSchema !== "object" || inputSchema === null) return out;
+  const properties = (inputSchema as { properties?: unknown }).properties;
+  if (typeof properties !== "object" || properties === null) return out;
+  for (const [name, schema] of Object.entries(properties as Record<string, unknown>)) {
+    if (typeof schema !== "object" || schema === null) continue;
+    const description = (schema as { description?: unknown }).description;
+    if (typeof description === "string" && description !== "") out.push([name, description]);
+  }
+  return out;
+}
+
+// The tool's JSDoc is the only documentation that reaches an editor: `mcp.tools.<name>` maps
+// homomorphically over the snapshot so hover shows this block, whereas the `description`
+// strings inside `inputSchema` are plain type-level values TypeScript cannot surface. The
+// argument descriptions are therefore repeated here as `@param args.<name>` tags. `check`
+// ignores JSDoc, so a reworded description is not drift.
 function toolDocLines(tool: Tool): string[] {
   const lines: string[] = [];
-  if (tool.title !== undefined) lines.push(tool.title);
+  // The spec has top-level `title` win over `annotations.title`; older servers only set the latter.
+  const title = tool.title ?? tool.annotations?.title;
+  if (title !== undefined) lines.push(title);
   if (tool.description !== undefined) lines.push(tool.description);
+  for (const [name, description] of argumentDescriptions(tool.inputSchema)) {
+    lines.push(`@param args.${name} ${description}`);
+  }
   return lines;
 }
 
-// Argument descriptions are only in the JSDoc, as `@param` tags, so they show on hover without
-// making a reworded description count as drift in `check`.
+// Prompt argument descriptions live only in the JSDoc, as `@param` tags: the snapshot entry
+// records just `{ name, required }`, so a reworded description is not drift in `check`.
 function promptDocLines(prompt: Prompt): string[] {
   const lines: string[] = [];
   if (prompt.title !== undefined) lines.push(prompt.title);

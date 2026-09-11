@@ -8,6 +8,8 @@ export type introspection = {
   "tools": {
     /**
      * Store a note and return it with its assigned id.
+     * @param args.title Short title
+     * @param args.body Note contents
      */
     "add_note": {
       "inputSchema": {

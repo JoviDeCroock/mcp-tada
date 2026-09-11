@@ -109,6 +109,13 @@ describe("introspect", () => {
     );
   }, 30_000);
 
+  it("repeats each argument's description as a @param args.<name> tag in the tool's JSDoc", async () => {
+    const result = await introspect({ target, write: false });
+    expect(result.text).toMatch(
+      /Returns the sum of two numbers\s*\n\s*\* @param args\.a First number\s*\n\s*\* @param args\.b Second number\s*\n\s*\*\/\s*\n\s*"get-sum"/,
+    );
+  }, 30_000);
+
   it("supports a custom --name export alias", async () => {
     const out = tmpFile("introspection.d.ts");
     const result = await introspect({ target, out, name: "everything" });

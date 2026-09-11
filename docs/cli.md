@@ -106,8 +106,11 @@ formatters honour it. Tool keys are sorted alphabetically for stable diffs. `out
 server's tool definition has one, and `annotations` (`readOnlyHint`, `destructiveHint`,
 `idempotentHint`, `openWorldHint`, and any other keys the server sends) only when the server
 declares them, with the known keys emitted in that order so the file does not churn when a server
-reorders them. Each tool key gets a JSDoc comment above it built from the tool's `title` and
-`description`, so editors show it on hover.
+reorders them. Each tool key gets a JSDoc comment above it built from the tool's `title` (falling
+back to `annotations.title`), its `description`, and one `@param args.<name>` tag per top-level
+`inputSchema` property that has a `description`. This block is what editors show on hover for
+`mcp.tools.<name>`; the `description` strings inside the schema itself are type-level values that
+TypeScript cannot surface, and `check` ignores the JSDoc, so a reworded description is not drift.
 
 The `prompts` map is present only when the server declares the `prompts` capability (it is `{}`
 for a server that declares it but lists none), so a snapshot of a tools-only server is unchanged.
