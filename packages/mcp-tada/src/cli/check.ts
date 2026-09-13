@@ -42,11 +42,17 @@ export type CheckChangeKind =
   | "annotations"
   | "promptAdded"
   | "promptRemoved"
-  | "promptArguments";
+  | "promptArguments"
+  | "resourceAdded"
+  | "resourceRemoved"
+  | "resourceChanged"
+  | "resourceTemplateAdded"
+  | "resourceTemplateRemoved"
+  | "resourceTemplateChanged";
 
 export interface CheckChange {
   kind: CheckChangeKind;
-  /** The tool or prompt name the change belongs to. */
+  /** The tool, prompt, or template name, or the resource URI, the change belongs to. */
   subject: string;
   severity: Severity;
   /** One line describing the change, e.g. `removed tool` or `inputSchema changed`. */
@@ -70,6 +76,14 @@ export interface CheckReport {
   promptsRemoved: string[];
   /** Prompts whose argument list (names, order, or `required` flags) changed. */
   promptsChanged: string[];
+  resourcesAdded: string[];
+  resourcesRemoved: string[];
+  /** Static resources whose `name` or `mimeType` changed. */
+  resourcesChanged: string[];
+  resourceTemplatesAdded: string[];
+  resourceTemplatesRemoved: string[];
+  /** Templates whose `uriTemplate` or `mimeType` changed. */
+  resourceTemplatesChanged: string[];
   /** Every difference, classified. Ordered worst first, then by subject. */
   changes: CheckChange[];
   /** The worst severity among `changes`; `additive` when there are none (see `identical`). */
@@ -161,6 +175,46 @@ export function diffIntrospection(
     push("promptArguments", name, "prompt arguments changed", worstOf(details), details);
   }
 
+  // Resources follow the prompts policy: a snapshot without the keys diffs as empty.
+  const beforeResources = before.resources ?? {};
+  const afterResources = after.resources ?? {};
+  const resources = diffKeys(beforeResources, afterResources);
+  for (const uri of resources.added) push("resourceAdded", uri, "added resource", "additive");
+  for (const uri of resources.removed) push("resourceRemoved", uri, "removed resource", "breaking");
+  for (const uri of resources.common) {
+    const b = beforeResources[uri];
+    const a = afterResources[uri];
+    if (!b || !a || deepEqual(b, a)) continue;
+    const details: Detail[] = [];
+    if (b.mimeType !== a.mimeType) details.push(mimeTypeChange(b.mimeType, a.mimeType));
+    if (b.name !== a.name)
+      details.push({ severity: "additive", message: `name is now ${JSON.stringify(a.name)}` });
+    push("resourceChanged", uri, "resource changed", worstOf(details), details);
+  }
+
+  const beforeTemplates = before.resourceTemplates ?? {};
+  const afterTemplates = after.resourceTemplates ?? {};
+  const templates = diffKeys(beforeTemplates, afterTemplates);
+  for (const name of templates.added)
+    push("resourceTemplateAdded", name, "added resource template", "additive");
+  for (const name of templates.removed)
+    push("resourceTemplateRemoved", name, "removed resource template", "breaking");
+  for (const name of templates.common) {
+    const b = beforeTemplates[name];
+    const a = afterTemplates[name];
+    if (!b || !a || deepEqual(b, a)) continue;
+    const details: Detail[] = [];
+    // The variables a caller passes come from the template string, so any edit to it can
+    // invalidate a typed call; there is no cheap way to tell a widening from a narrowing.
+    if (b.uriTemplate !== a.uriTemplate)
+      details.push({
+        severity: "breaking",
+        message: `uriTemplate is now ${JSON.stringify(a.uriTemplate)}`,
+      });
+    if (b.mimeType !== a.mimeType) details.push(mimeTypeChange(b.mimeType, a.mimeType));
+    push("resourceTemplateChanged", name, "resource template changed", worstOf(details), details);
+  }
+
   const subjects = (...kinds: CheckChangeKind[]): string[] =>
     changes
       .filter((c) => kinds.includes(c.kind))
@@ -181,6 +235,12 @@ export function diffIntrospection(
     promptsAdded: subjects("promptAdded"),
     promptsRemoved: subjects("promptRemoved"),
     promptsChanged: subjects("promptArguments"),
+    resourcesAdded: subjects("resourceAdded"),
+    resourcesRemoved: subjects("resourceRemoved"),
+    resourcesChanged: subjects("resourceChanged"),
+    resourceTemplatesAdded: subjects("resourceTemplateAdded"),
+    resourceTemplatesRemoved: subjects("resourceTemplateRemoved"),
+    resourceTemplatesChanged: subjects("resourceTemplateChanged"),
     changes: [...changes].sort(
       (a, b) =>
         bySeverity(a, b) || a.subject.localeCompare(b.subject) || a.kind.localeCompare(b.kind),
@@ -224,6 +284,22 @@ function weakenedHints(
   return SAFETY_HINTS.filter(
     ({ hint, safe }) => before?.[hint] === safe && after?.[hint] !== safe,
   ).map(({ hint, safe }) => ({ severity: "dangerous", message: `${hint} is no longer ${safe}` }));
+}
+
+// A recorded `mimeType` is what `readResource`'s contents are typed with. Gaining one where
+// there was none narrows `string` to a literal, which existing code still satisfies; losing or
+// changing one does not.
+function mimeTypeChange(before: string | undefined, after: string | undefined): Detail {
+  if (before === undefined) {
+    return { severity: "additive", message: `mimeType is now ${JSON.stringify(after)}` };
+  }
+  return {
+    severity: "breaking",
+    message:
+      after === undefined
+        ? `mimeType ${JSON.stringify(before)} is no longer declared`
+        : `mimeType is now ${JSON.stringify(after)}, was ${JSON.stringify(before)}`,
+  };
 }
 
 /** Prompt arguments are passed by name, so only the name set and the required flags matter. */

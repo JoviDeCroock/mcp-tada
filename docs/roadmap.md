@@ -35,16 +35,20 @@ open: `$ref` cycles deeper than eight hops, and `dependentRequired` / `dependent
 
 ## Beyond tools
 
-Shipped: tool `annotations` in the snapshot with `ReadOnlyToolNames` / `readOnly`, `prompts`
-in the snapshot with a typed `getPrompt`, and prompts in `combineMcpTada` under the same alias
-prefix as tools. Still open, in rough order of value:
+Shipped: tool `annotations` in the snapshot with `ReadOnlyToolNames` / `readOnly`; `prompts`
+in the snapshot with a typed `getPrompt` (and, in `combineMcpTada`, under the same alias prefix as
+tools); and `resources` / `resourceTemplates` in the snapshot
+with `readResource` (URIs completed, `contents[].mimeType` narrowed) and `readResourceTemplate`
+(`params` parsed from the RFC 6570 `uriTemplate` at the type level, expanded at runtime by
+mcp-tada's own small RFC 6570 expander, the one deliberate runtime step beyond forwarding,
+alongside the `tools` Proxy; the library still imports nothing from either SDK). The template string itself is fetched from the live server on first use, since the
+snapshot is type-only. Still open, in rough order of value:
 
-- Resource templates: parse `uriTemplate` (RFC 6570) at the type level into a params object for a
-  typed `readResource`, and narrow the result on `mimeType`. Needs a few lines of runtime template
-  expansion, the first real runtime in the client, so it should be a deliberate exception like the
-  `tools` Proxy.
 - Server-side `definePrompts` / `defineResources` mirroring `defineTools`, feeding the same
   `IntrospectionOf`.
+- Resources in `combineMcpTada`: a URI carries no alias to route on, so the combined client omits
+  `readResource`; reach resources through `servers.<alias>`. Templates could be prefixed like
+  tools.
 - Elicitation results on the server: `requestedSchema` is a flat subset of what the mapper already
   handles (plus the titled-enum `anyOf` of `const` + `title`), so a typed `elicit(schema)` in
   `mcp-tada-server` is mostly a mapper reuse.

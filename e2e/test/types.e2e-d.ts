@@ -6,6 +6,9 @@ import type {
   PromptArgs,
   PromptNames,
   ReadOnlyToolNames,
+  ResourceMimeType,
+  ResourceTemplateNames,
+  ResourceUris,
   ToolArgs,
   ToolOutput,
 } from "mcp-tada";
@@ -41,6 +44,14 @@ describe("memory", () => {
     expectTypeOf<
       ToolOutput<Memory, "read_graph">["entities"][number]["name"]
     >().toEqualTypeOf<string>();
+  });
+
+  test("one static JSON resource, no templates", () => {
+    expectTypeOf<ResourceUris<Memory>>().toEqualTypeOf<"memory://knowledge-graph">();
+    expectTypeOf<
+      ResourceMimeType<Memory, "memory://knowledge-graph">
+    >().toEqualTypeOf<"application/json">();
+    expectTypeOf<ResourceTemplateNames<Memory>>().toEqualTypeOf<never>();
   });
 });
 

@@ -65,9 +65,18 @@ type ServersOf<M extends Record<string, AnyTypedClient>> = {
   [K in keyof M]: IntrospectionOf<M[K]>;
 };
 
+// Resources are not namespaced by the combined client (a resource URI carries no alias to route
+// on); reach them through `servers.<alias>`.
 export type CombinedClient<M extends Record<string, AnyTypedClient>, Sep extends string> = Omit<
   TypedClient<CombinedIntrospection<ServersOf<M>, Sep>>,
-  "listTools" | "client" | "tools" | "listPrompts"
+  | "listTools"
+  | "client"
+  | "tools"
+  | "listPrompts"
+  | "readResource"
+  | "readResourceTemplate"
+  | "listResources"
+  | "listResourceTemplates"
 > & {
   /** Direct access to each underlying typed client, keyed by its alias. */
   servers: M;
