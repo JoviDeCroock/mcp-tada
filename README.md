@@ -63,7 +63,7 @@ The same two pieces power "code mode" agents: the snapshot is a TypeScript decla
 
 1. `mcp-tada introspect` connects to the server, pages through `tools/list` (and `prompts/list` when the server offers prompts), and writes a `.d.ts` containing the tool and prompt maps as a strict JSON type literal, with each entry's title and description as a JSDoc block, and each tool's `annotations` when the server declares them. Nothing else is generated.
 2. `initMcpTada<introspection>()` returns a thin wrapper around the SDK `Client`. At runtime it forwards to `client.callTool`. Everything else is type-level.
-3. A small purpose-built JSON Schema to TypeScript mapper turns each schema into a type on demand. It accepts draft-07 and 2020-12 vocabularies: objects with `required` and `additionalProperties`, arrays and `prefixItems` tuples, `enum`, `const`, `anyOf`, `oneOf`, `allOf`, `type` arrays, `nullable`, and `$ref` into `$defs` or `definitions`.
+3. A small purpose-built JSON Schema to TypeScript mapper turns each schema into a type on demand. It accepts draft-07 and 2020-12 vocabularies: objects with `required` and `additionalProperties`, arrays and `prefixItems` tuples, `enum`, `const`, `anyOf`, `oneOf`, `allOf`, `type` arrays, `nullable`, `patternProperties`, `if`/`then`/`else`, and `$ref` into `$defs` or `definitions`.
 
 Off-the-shelf type-level mappers were measured at over 12 million type instantiations on real server schemas. This one checks the same snapshot in about 25 thousand, so editor feedback stays instant.
 
@@ -71,10 +71,11 @@ Off-the-shelf type-level mappers were measured at over 12 million type instantia
 
 ### `mcp-tada init`
 
-Writes `mcp-tada.config.json` from the servers your project already configures for its editor or agent, so the first `introspect` needs no flags. It reads the first of `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, or the Claude Desktop config, or the file given with `--from`, and gives every server an `output` under `src/` (or `--out-dir`). Values in `env` and `headers` are copied verbatim, and `init` warns about any that look like secrets. `--force` overwrites an existing config.
+Writes `mcp-tada.config.json` from the servers your project already configures for its editor or agent, so the first `introspect` needs no flags. It reads the first of `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, or the Claude Desktop config, or the file given with `--from`, and gives every server an `output` under `src/` (or `--out-dir`). Values in `env` and `headers` are copied verbatim, and `init` warns about any that look like secrets. `--force` overwrites an existing config. `--skills` also links the package's [agent skills](#agent-skills) into `.claude/skills` (or `--skills-dir`), leaving any that are already there alone.
 
 ```sh
 mcp-tada init
+mcp-tada init --skills
 mcp-tada init --from ~/Library/Application\ Support/Claude/claude_desktop_config.json --out-dir src/mcp
 ```
 
@@ -176,7 +177,7 @@ await safe.callTool("read_file", { path: "README.md" }); // ok
 await safe.callTool("write_file", { path: "x", content: "" }); // compile error
 const tools = await safe.listTools(); // only tools with readOnlyHint: true
 ```
-- `combineMcpTada(clients, options?)` merges several typed clients into one, prefixing each tool name with its alias (default separator `"__"`) so same-named tools on different servers never collide. Prompts are not merged; reach them through `combined.servers.<alias>.getPrompt(...)`. Throws at construction if an alias is empty or contains the separator, or if the separator is empty. Its `tools` nests each server's methods under its alias, so `combined.tools.gh.search(...)` needs no prefixed string.
+- `combineMcpTada(clients, options?)` merges several typed clients into one, prefixing each tool and prompt name with its alias (default separator `"__"`) so same-named tools on different servers never collide. `getPrompt("gh__summarize", args)` and `listPrompts()` work the same way, and a server without the `prompts` capability contributes no prompt names. Throws at construction if an alias is empty or contains the separator, or if the separator is empty. Its `tools` nests each server's methods under its alias, so `combined.tools.gh.search(...)` needs no prefixed string.
 
 ```ts
 const fs = initMcpTada<FsIntrospection>().typed(fsClient);
@@ -187,6 +188,7 @@ await combined.callTool("fs__read_file", { path: "README.md" });
 //                       ^ union of "fs__..." | "gh__..." tool names
 await combined.tools.fs.read_file({ path: "README.md" }); // same call, no prefix to spell
 const tools = await combined.listTools(); // Tool[], ready for an LLM's tool list
+await combined.getPrompt("gh__summarize", { repo: "mcp-tada" }); // prompts are prefixed the same way
 combined.servers.gh; // direct access to the underlying typed client
 combined.split("gh__search"); // -> { server: "gh", tool: "search" }
 ```
@@ -263,7 +265,7 @@ pnpm --filter @mcp-tada/example-deepwiki start
 
 ## Agent skills
 
-The package ships four [agent skills](https://agentskills.io) under `skills/`, one `SKILL.md` per directory: `mcp-tada-integration` (wiring the client into a project), `mcp-tada-cli` (running or scripting the CLI), `mcp-tada-snapshots` (regenerating snapshots and reading a `check` report), and `mcp-tada-type-mapper` (how schemas map to types). Copy or symlink them into your project's skills directory, for example `.claude/skills/`:
+The package ships four [agent skills](https://agentskills.io) under `skills/`, one `SKILL.md` per directory: `mcp-tada-integration` (wiring the client into a project), `mcp-tada-cli` (running or scripting the CLI), `mcp-tada-snapshots` (regenerating snapshots and reading a `check` report), and `mcp-tada-type-mapper` (how schemas map to types). `mcp-tada init --skills` links all four into `.claude/skills/` (or `--skills-dir <dir>`), skipping any that are already there. To place them by hand, copy or symlink the directories into your project's skills directory:
 
 ```sh
 ln -s ../../node_modules/mcp-tada/skills/mcp-tada-integration .claude/skills/mcp-tada-integration
@@ -281,4 +283,4 @@ See `AGENTS.md` for contributor conventions and `.changeset/` for release notes.
 
 ## Status
 
-Early. API may change before 1.0.
+Pre-1.0, but the surfaces people build on are settled: the snapshot format (a name-keyed tool map, plus `annotations` and `prompts` when present) is a public contract, older snapshots keep loading, and `initMcpTada`, `readOnly`, `combineMcpTada`, `mockMcpTada`, and the four CLI commands are not expected to change shape. Breaking changes, when they happen, are called out in the changelog with a migration note.

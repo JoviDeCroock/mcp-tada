@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { candidateSources, init } from "../src/cli/init.js";
+import { candidateSources, init, installSkills, packagedSkillsDir } from "../src/cli/init.js";
 import { doctor, installedVersion, versionAtLeast } from "../src/cli/doctor.js";
 
 const EVERYTHING_SERVER = resolve(
@@ -75,6 +84,52 @@ describe("init", () => {
     const result = init({ cwd, from: "servers.json", write: false });
     expect(result.config.servers["fs"]?.output).toBe("fs.introspection.d.ts");
     expect(result.warnings).toEqual([]);
+    expect(result.skills).toBeUndefined();
+  });
+
+  it("links the packaged skills into .claude/skills with --skills, and skips existing ones", () => {
+    const cwd = tmpDir();
+    writeFileSync(
+      join(cwd, ".mcp.json"),
+      JSON.stringify({ mcpServers: { a: { url: "https://x" } } }),
+    );
+    mkdirSync(join(cwd, ".claude", "skills", "mcp-tada-cli"), { recursive: true });
+
+    const result = init({ cwd, skills: true });
+    expect(result.skills).toEqual({
+      dir: join(cwd, ".claude", "skills"),
+      installed: ["mcp-tada-integration", "mcp-tada-snapshots", "mcp-tada-type-mapper"],
+      skipped: ["mcp-tada-cli"],
+    });
+    const link = join(cwd, ".claude", "skills", "mcp-tada-integration");
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(resolve(realpathSync(join(cwd, ".claude", "skills")), readlinkSync(link))).toBe(
+      realpathSync(join(packagedSkillsDir(), "mcp-tada-integration")),
+    );
+    expect(existsSync(join(link, "SKILL.md"))).toBe(true);
+
+    // A second run installs nothing new and reports everything as present.
+    expect(installSkills({ cwd })).toEqual({
+      dir: join(cwd, ".claude", "skills"),
+      installed: [],
+      skipped: [
+        "mcp-tada-cli",
+        "mcp-tada-integration",
+        "mcp-tada-snapshots",
+        "mcp-tada-type-mapper",
+      ],
+    });
+  });
+
+  it("installs skills into --skills-dir and only computes with write: false", () => {
+    const cwd = tmpDir();
+    const dry = installSkills({ cwd, dir: "skills", write: false });
+    expect(dry.installed).toHaveLength(4);
+    expect(existsSync(join(cwd, "skills"))).toBe(false);
+
+    const wet = installSkills({ cwd, dir: "skills" });
+    expect(wet.dir).toBe(join(cwd, "skills"));
+    expect(existsSync(join(cwd, "skills", "mcp-tada-cli", "SKILL.md"))).toBe(true);
   });
 });
 

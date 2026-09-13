@@ -76,6 +76,20 @@ describe.runIf(serverAvailable)("combineMcpTada (runtime, server-everything)", (
     expect(names.length).toBeGreaterThan(20);
   });
 
+  it("routes a prefixed prompt to the right server and lists prompts prefixed", async () => {
+    const one = initMcpTada<introspection>().typed(clientA);
+    const two = initMcpTada<introspection>().typed(clientB);
+    const combined = combineMcpTada({ one, two });
+
+    const result = await combined.getPrompt("two__args-prompt", { city: "Chicago" });
+    expect(JSON.stringify(result.messages)).toContain("Chicago");
+
+    const prompts = await combined.listPrompts();
+    const names = prompts.map((p) => p.name);
+    expect(names).toContain("one__args-prompt");
+    expect(names).toContain("two__args-prompt");
+  });
+
   it("resolves a custom separator", async () => {
     const one = initMcpTada<introspection>().typed(clientA);
     const two = initMcpTada<introspection>().typed(clientB);

@@ -1,6 +1,8 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { describe, expectTypeOf, test } from "vitest";
+import type { GetPromptResult } from "@modelcontextprotocol/sdk/types.js";
 import { combineMcpTada, initMcpTada } from "../src/index.js";
+import type { CombinedIntrospection, PromptNames } from "../src/index.js";
 import type { introspection as everything } from "./fixtures/everything.introspection.d.ts";
 import type { introspection as second } from "./fixtures/second.introspection.d.ts";
 
@@ -87,5 +89,37 @@ describe("combineMcpTada", () => {
 
     // @ts-expect-error wrong type for fs__echo's text
     await combined.callTool("fs__echo", { text: 42 });
+  });
+
+  test("prompts are prefixed like tools; a server without prompts contributes none", async () => {
+    const combined = combineMcpTada({ gh, fs });
+    expectTypeOf<
+      PromptNames<CombinedIntrospection<{ gh: everything; fs: second }>>
+    >().toEqualTypeOf<
+      "gh__args-prompt" | "gh__completable-prompt" | "gh__resource-prompt" | "gh__simple-prompt"
+    >();
+
+    const r = await combined.getPrompt("gh__args-prompt", { city: "Chicago" });
+    expectTypeOf(r).toEqualTypeOf<GetPromptResult>();
+    await combined.getPrompt("gh__simple-prompt");
+
+    const { server } = combined.split("gh__args-prompt");
+    expectTypeOf(server).toEqualTypeOf<"gh" | "fs">();
+
+    // @ts-expect-error missing required argument city
+    await combined.getPrompt("gh__args-prompt", {});
+    // @ts-expect-error unprefixed prompt name
+    await combined.getPrompt("args-prompt", { city: "Chicago" });
+    // @ts-expect-error the second server has no prompts
+    await combined.getPrompt("fs__args-prompt", { city: "Chicago" });
+  });
+
+  test("a combination of prompt-less servers has no prompt names", async () => {
+    expectTypeOf<
+      PromptNames<CombinedIntrospection<{ a: second; b: second }>>
+    >().toEqualTypeOf<never>();
+    const combined = combineMcpTada({ a: fs, b: fs });
+    // @ts-expect-error nothing to get
+    await combined.getPrompt("a__anything");
   });
 });

@@ -9,7 +9,7 @@ Four commands. `--help` and `--version` are the only others.
 
 | Command | Does | Exits 1 when |
 | --- | --- | --- |
-| `init` | writes `mcp-tada.config.json` from `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, or Claude Desktop (`--from <path>` to pick) | no source config found (it prints every path it tried); config exists and no `--force` |
+| `init` | writes `mcp-tada.config.json` from `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, or Claude Desktop (`--from <path>` to pick); `--skills` also links the mcp-tada agent skills into `.claude/skills` (or `--skills-dir <dir>`) | no source config found (it prints every path it tried); config exists and no `--force` |
 | `doctor` | one `ok` / `warn` / `fail` line per setup check: SDK and TypeScript versions, config, snapshots, live servers (`--offline` skips connecting) | any check is `fail`. Warnings never fail, so it runs before the first `introspect` |
 | `introspect [alias]` | connects, pages `tools/list` and `prompts/list`, writes the snapshot | connection or timeout failure, naming the target |
 | `check [alias]` | re-introspects and diffs against the snapshot (`--against <path>` for an explicit file) | any difference at or above `--fail-on` (`any`, default; `dangerous`; `breaking`) |
@@ -50,8 +50,8 @@ const { report, text } = await check({ target, against: "src/introspection.d.ts"
 if (!report.identical) throw new Error(text);
 ```
 
-The subpath exposes what the CLI runs minus argv parsing: `init`, `doctor`, `introspect`,
-`check`, `loadConfig`, and the building blocks (`connectClient`, `introspectTarget`,
+The subpath exposes what the CLI runs minus argv parsing: `init`, `installSkills`, `doctor`,
+`introspect`, `check`, `loadConfig`, and the building blocks (`connectClient`, `introspectTarget`,
 `diffIntrospection`, `formatReport`, `compareSchemas`, `parseDtsSnapshot`, ...). Unlike the CLI,
 no default timeout is applied unless `timeoutMs` is set. Exit codes are yours to decide.
 `report.changes` is the flat list of differences, each with `severity` and `reasons`, worst first.

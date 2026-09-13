@@ -29,14 +29,20 @@ reports are one of the decisions below working as intended.
 - `properties` with no `type` is still an object (common in the wild).
 - `enum`, `const`, `nullable`, `anyOf`, `oneOf`, `allOf`, `items`, `prefixItems` (tuple),
   `required`, `$ref` to `#/$defs/...` or `#/definitions/...` on the same schema.
+- `patternProperties` is one string index signature whose value is the union of every pattern's
+  schema (TypeScript cannot key on a regex), next to the declared `properties`.
+- `if` / `then` / `else` is the union of the base schema with `then` applied and with `else`
+  applied: a branch's `properties` intersect in, and its `required` makes those base properties
+  required. `if` itself is not evaluated; the union covers both outcomes. A missing branch is
+  the base unchanged.
 - `$ref` resolution stops after 8 levels and yields `unknown`. External `$ref` URIs are
   `unknown`; `introspect` warns about them.
 - Descriptions inside the schema are not visible on hover; only the tool's own
   description and `@param` tags in the snapshot's JSDoc are, and only through `mcp.tools.<name>`.
 
-Not supported, deliberately: `patternProperties`, `if` / `then` / `else`, `$ref` cycles deeper
-than eight hops. These map to `unknown` or are ignored. If you author the server, prefer a
-shape the mapper handles.
+Not supported, deliberately: `dependentRequired`, `dependentSchemas`, `not`, and `$ref` cycles
+deeper than eight hops. These map to `unknown` or are ignored. If you author the server, prefer
+a shape the mapper handles.
 
 ## Naming the types
 

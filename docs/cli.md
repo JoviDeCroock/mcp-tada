@@ -17,7 +17,7 @@ The `mcp-tada` binary is installed by the package (`bin/mcp-tada.js`).
 ## `mcp-tada init`
 
 ```
-mcp-tada init [--from <path>] [--out-dir <dir>] [--config <path>] [--force]
+mcp-tada init [--from <path>] [--out-dir <dir>] [--config <path>] [--force] [--skills] [--skills-dir <dir>]
 ```
 
 Writes an `mcp-tada.config.json` from an MCP server list the project already has. Without
@@ -40,6 +40,13 @@ config is meant to be committed. `--config` changes where the file is written (d
 `mcp-tada.config.json`); an existing file is refused unless `--force` is given, and an identical
 file is left untouched. On success the imported aliases and the next commands to run are printed
 to stderr.
+
+`--skills` also installs the package's agent skills (`mcp-tada-integration`, `mcp-tada-cli`,
+`mcp-tada-snapshots`, `mcp-tada-type-mapper`) into `.claude/skills`, or `--skills-dir <dir>`. Each
+skill becomes a relative symlink to the copy in `node_modules/mcp-tada/skills`, so it follows
+package upgrades; where symlinks cannot be created the directory is copied. A skill directory that
+already exists is left as it is and reported. The install happens after the config is written, so
+an existing config still needs `--force`.
 
 ## `mcp-tada doctor`
 
@@ -381,8 +388,10 @@ a bare `Tool[]`); `diffIntrospection` and `formatReport` on the check side; and
 a server.
 
 `init(options)` and `doctor(options)` are exported as well. `init` takes `cwd`, `from`, `outDir`,
-`configPath`, `force`, and `write` (false to only compute), and returns `{ configPath, source,
-config, text, wrote, warnings }`; `candidateSources(cwd)` lists the files it would search.
+`configPath`, `force`, `skills`, `skillsDir`, and `write` (false to only compute), and returns
+`{ configPath, source, config, text, wrote, warnings, skills? }`; `candidateSources(cwd)` lists the
+files it would search. `installSkills({ cwd, dir, source, write })` does the skills step on its own
+and returns `{ dir, installed, skipped }`; `packagedSkillsDir()` is where the skills are read from.
 `doctor` takes `cwd`, `configPath`, `connect` (false for `--offline`), and `timeoutMs`, and
 returns `{ checks, ok, text }`, where each check is `{ status, subject, detail }` with `status`
 one of `"ok"`, `"warn"`, or `"fail"`, and `ok` is false when any check failed.

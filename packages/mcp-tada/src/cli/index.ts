@@ -44,10 +44,15 @@ export {
 export { compareSchemas, type SchemaChange, type SchemaDirection } from "./compat.js";
 export {
   DEFAULT_CONFIG_PATH,
+  DEFAULT_SKILLS_DIR,
   candidateSources,
   init,
+  installSkills,
+  packagedSkillsDir,
   type InitOptions,
   type InitResult,
+  type InstallSkillsOptions,
+  type InstallSkillsResult,
 } from "./init.js";
 export {
   MIN_SDK_VERSION,

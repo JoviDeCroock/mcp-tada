@@ -21,14 +21,16 @@ Shipped as `packages/mcp-tada-server`: `defineTool`/`defineTools` declare tools 
 
 Add a fixture per surveyed server shape and snapshot-test the emitted types. Partially shipped:
 `type` omitted around `properties` is now mapped as an object (`src/schema.ts`, covered by
-`test/schema.test-d.ts`), and `type: [..., "null"]` unions each named type instead of only
-handling primitives. Still open: `patternProperties`, `if` / `then` / `else`, `$ref` cycles
-deeper than eight hops.
+`test/schema.test-d.ts`), `type: [..., "null"]` unions each named type instead of only
+handling primitives, `patternProperties` maps to one index signature over the union of its value
+schemas, and `if` / `then` / `else` maps to the union of the base with each branch applied. Still
+open: `$ref` cycles deeper than eight hops, and `dependentRequired` / `dependentSchemas`.
 
 ## Beyond tools
 
-Shipped: tool `annotations` in the snapshot with `ReadOnlyToolNames` / `readOnly`, and `prompts`
-in the snapshot with a typed `getPrompt`. Still open, in rough order of value:
+Shipped: tool `annotations` in the snapshot with `ReadOnlyToolNames` / `readOnly`, `prompts`
+in the snapshot with a typed `getPrompt`, and prompts in `combineMcpTada` under the same alias
+prefix as tools. Still open, in rough order of value:
 
 - Resource templates: parse `uriTemplate` (RFC 6570) at the type level into a params object for a
   typed `readResource`, and narrow the result on `mimeType`. Needs a few lines of runtime template
@@ -36,8 +38,6 @@ in the snapshot with a typed `getPrompt`. Still open, in rough order of value:
   `tools` Proxy.
 - Server-side `definePrompts` / `defineResources` mirroring `defineTools`, feeding the same
   `IntrospectionOf`.
-- Prompts in `combineMcpTada`: today the combined client omits `getPrompt`; reach prompts through
-  `servers.<alias>`.
 - Elicitation results on the server: `requestedSchema` is a flat subset of what the mapper already
   handles (plus the titled-enum `anyOf` of `const` + `title`), so a typed `elicit(schema)` in
   `mcp-tada-server` is mostly a mapper reuse.

@@ -1,8 +1,9 @@
 // `mcp-tada init`: write an `mcp-tada.config.json` from the MCP servers a project already
 // configures for its editor or agent, so the first `mcp-tada introspect` needs no flags.
-import { existsSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, realpathSync, symlinkSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadConfig, type McpTadaConfig, type ServerConfigEntry } from "./connect.js";
 import { writeIfChanged } from "./introspect.js";
 
@@ -31,6 +32,73 @@ export function candidateSources(cwd: string, platform = process.platform, home 
   return [...project, desktop];
 }
 
+export const DEFAULT_SKILLS_DIR = join(".claude", "skills");
+
+/** The `skills/` directory shipped in the mcp-tada package (next to `dist/`). */
+export function packagedSkillsDir(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "skills");
+}
+
+export interface InstallSkillsOptions {
+  /** Directory paths are resolved from. Defaults to `process.cwd()`. */
+  cwd?: string;
+  /** Where the skills go, relative to `cwd`. Defaults to `.claude/skills`. */
+  dir?: string;
+  /** Where the packaged skills are read from. Defaults to the installed package's `skills/`. */
+  source?: string;
+  /** Set false to skip writing to disk. */
+  write?: boolean;
+}
+
+export interface InstallSkillsResult {
+  /** Absolute path of the directory the skills were installed into. */
+  dir: string;
+  /** Skills linked (or copied, where symlinks are unavailable) into `dir`. */
+  installed: string[];
+  /** Skills already present in `dir`, left as they were. */
+  skipped: string[];
+}
+
+/** Links each packaged agent skill (`mcp-tada-integration`, `mcp-tada-cli`, ...) into a
+ * project's skills directory. A relative symlink keeps the skill current across upgrades; where
+ * symlinks are unavailable (Windows without developer mode) the directory is copied instead.
+ * Anything already at the target path is left alone. */
+export function installSkills(opts: InstallSkillsOptions = {}): InstallSkillsResult {
+  const cwd = opts.cwd ?? process.cwd();
+  const source = opts.source ?? packagedSkillsDir();
+  const dir = resolve(cwd, opts.dir ?? DEFAULT_SKILLS_DIR);
+  if (!existsSync(source)) {
+    throw new Error(`mcp-tada init: packaged skills not found at ${source}`);
+  }
+  const names = readdirSync(source, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(join(source, entry.name, "SKILL.md")))
+    .map((entry) => entry.name)
+    .sort();
+  const installed: string[] = [];
+  const skipped: string[] = [];
+  const write = opts.write ?? true;
+  if (write) mkdirSync(dir, { recursive: true });
+  for (const name of names) {
+    const target = join(dir, name);
+    if (existsSync(target)) {
+      skipped.push(name);
+      continue;
+    }
+    if (write) {
+      // Relative so the link survives moving the project; from real paths so a symlinked
+      // ancestor (macOS's /var -> /private/var, a linked workspace) cannot bend it.
+      const link = relative(realpathSync(dir), realpathSync(join(source, name)));
+      try {
+        symlinkSync(link, target, "dir");
+      } catch {
+        cpSync(join(source, name), target, { recursive: true });
+      }
+    }
+    installed.push(name);
+  }
+  return { dir, installed, skipped };
+}
+
 export interface InitOptions {
   /** Directory the config is written to and paths are resolved from. Defaults to `process.cwd()`. */
   cwd?: string;
@@ -44,6 +112,10 @@ export interface InitOptions {
   force?: boolean;
   /** Set false to skip writing to disk. */
   write?: boolean;
+  /** Also install the packaged agent skills into `skillsDir` (default `.claude/skills`). */
+  skills?: boolean;
+  /** Where `skills` installs to, relative to `cwd`. */
+  skillsDir?: string;
 }
 
 export interface InitResult {
@@ -55,6 +127,8 @@ export interface InitResult {
   wrote: boolean;
   /** Human-readable notes, e.g. env values that were copied verbatim. */
   warnings: string[];
+  /** Present when `skills` was requested. */
+  skills?: InstallSkillsResult;
 }
 
 const secretLike = /key|token|secret|password|authorization|credential/i;
@@ -125,5 +199,13 @@ export function init(opts: InitOptions = {}): InitResult {
   const config: McpTadaConfig = { servers };
   const text = `${JSON.stringify(config, null, 2)}\n`;
   const wrote = (opts.write ?? true) ? writeIfChanged(configPath, text) : false;
-  return { configPath, source, config, text, wrote, warnings };
+  const result: InitResult = { configPath, source, config, text, wrote, warnings };
+  if (opts.skills) {
+    result.skills = installSkills({
+      cwd,
+      ...(opts.skillsDir !== undefined ? { dir: opts.skillsDir } : {}),
+      ...(opts.write !== undefined ? { write: opts.write } : {}),
+    });
+  }
+  return result;
 }

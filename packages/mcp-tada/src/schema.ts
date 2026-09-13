@@ -25,6 +25,13 @@
 //   individually (so `["object", "null"]` is `ObjectType | null`, not just a nullable wrapper).
 // - `$ref` is resolved against the root schema passed as the second type parameter. Recursion
 //   is capped at 8 levels; beyond that we bail to `unknown` rather than blow up the compiler.
+// - `patternProperties` cannot be expressed key-by-key (TS has no regex keys), so every pattern's
+//   value schema is unioned into one string index signature next to the declared `properties`.
+// - `if` / `then` / `else` cannot be evaluated at the type level, so the result is the union of
+//   the base schema intersected with `then` and the base schema intersected with `else` (each
+//   branch's `properties` map as usual, and its `required` list makes those base properties
+//   required). A branch that is absent contributes the base schema unchanged. `if` itself is
+//   ignored: the union already covers both outcomes.
 
 type Prim = {
   string: string;
@@ -77,14 +84,24 @@ type AdditionalProps<S, Root, Depth extends number, M extends Mode> = S extends 
       ? { [k: string]: unknown }
       : {};
 
+// `patternProperties`: one index signature whose value is the union of every pattern's schema.
+type PatternProps<S, Root, Depth extends number, M extends Mode> = S extends {
+  patternProperties: infer PP;
+}
+  ? { [k: string]: FromSchemaAt<PP[keyof PP], Root, Depth, M> }
+  : {};
+
 type ObjectType<S, Root, Depth extends number, M extends Mode> = S extends { properties: infer P }
   ? Simplify<
       ObjOf<P, S extends { required: infer R } ? Keys<R> : never, Root, Depth, M> &
-        AdditionalProps<S, Root, Depth, M>
+        AdditionalProps<S, Root, Depth, M> &
+        PatternProps<S, Root, Depth, M>
     >
-  : S extends { additionalProperties: false }
-    ? Record<string, never>
-    : { [k: string]: unknown };
+  : S extends { patternProperties: unknown }
+    ? PatternProps<S, Root, Depth, M>
+    : S extends { additionalProperties: false }
+      ? Record<string, never>
+      : { [k: string]: unknown };
 
 // Tuple/array type: prefixItems -> tuple, items -> element type, items: false -> [].
 type ArrayType<S, Root, Depth extends number, M extends Mode> = S extends { prefixItems: infer PI }
@@ -120,33 +137,54 @@ type WithNullable<S, T> = S extends { nullable: true } ? T | null : T;
 
 type Prev8 = [never, 0, 1, 2, 3, 4, 5, 6, 7];
 
+// One `then` / `else` branch applied to the base type `B`: the branch's own schema (usually a
+// partial `properties` map) is intersected in, and its `required` names become required on `B`.
+type ApplyBranch<B, Branch, Root, Depth extends number, M extends Mode> = Simplify<
+  B &
+    (Branch extends { properties: unknown } ? FromSchemaAt<Branch, Root, Depth, M> : unknown) &
+    (Branch extends { required: infer R }
+      ? { [K in keyof B as K extends Keys<R> ? K : never]-?: B[K] }
+      : unknown)
+>;
+
+// `if` / `then` / `else`: the base schema without the three keywords, once with `then` applied
+// and once with `else` applied. A missing branch is the base unchanged.
+type Conditional<S, Root, Depth extends number, M extends Mode> =
+  FromSchemaAt<Omit<S, "if" | "then" | "else">, Root, Depth, M> extends infer B
+    ?
+        | (S extends { then: infer T } ? ApplyBranch<B, T, Root, Depth, M> : B)
+        | (S extends { else: infer E } ? ApplyBranch<B, E, Root, Depth, M> : B)
+    : never;
+
 // The recursive worker, threading the root schema (for $ref), a recursion depth cap, and the
 // input/output mode (for additionalProperties defaulting).
 type FromSchemaAt<S, Root, Depth extends number, M extends Mode> = [Depth] extends [never]
   ? unknown
   : S extends { $ref: infer R extends string }
     ? FromSchemaAt<ResolveRef<R, Root>, Root, Prev8[Depth], M>
-    : S extends { const: infer C }
-      ? C
-      : S extends { enum: readonly (infer E)[] }
-        ? E
-        : S extends { allOf: readonly (infer A)[] }
-          ? Simplify<UnionToIntersection<FromSchemaAt<A, Root, Depth, M>>>
-          : S extends { anyOf: readonly (infer A)[] }
-            ? WithNullable<S, FromSchemaAt<A, Root, Depth, M>>
-            : S extends { oneOf: readonly (infer A)[] }
+    : S extends { if: unknown }
+      ? Conditional<S, Root, Depth, M>
+      : S extends { const: infer C }
+        ? C
+        : S extends { enum: readonly (infer E)[] }
+          ? E
+          : S extends { allOf: readonly (infer A)[] }
+            ? Simplify<UnionToIntersection<FromSchemaAt<A, Root, Depth, M>>>
+            : S extends { anyOf: readonly (infer A)[] }
               ? WithNullable<S, FromSchemaAt<A, Root, Depth, M>>
-              : S extends { type: infer T extends readonly unknown[] }
-                ? WithNullable<S, TypeArrayUnion<T, S, Root, Depth, M>>
-                : S extends { type: "array" }
-                  ? WithNullable<S, ArrayType<S, Root, Depth, M>>
-                  : S extends { type: "object" }
-                    ? WithNullable<S, ObjectType<S, Root, Depth, M>>
-                    : S extends { type: infer T }
-                      ? WithNullable<S, MapType<T, S, Root, Depth, M>>
-                      : S extends { properties: unknown }
-                        ? WithNullable<S, ObjectType<S, Root, Depth, M>>
-                        : unknown;
+              : S extends { oneOf: readonly (infer A)[] }
+                ? WithNullable<S, FromSchemaAt<A, Root, Depth, M>>
+                : S extends { type: infer T extends readonly unknown[] }
+                  ? WithNullable<S, TypeArrayUnion<T, S, Root, Depth, M>>
+                  : S extends { type: "array" }
+                    ? WithNullable<S, ArrayType<S, Root, Depth, M>>
+                    : S extends { type: "object" }
+                      ? WithNullable<S, ObjectType<S, Root, Depth, M>>
+                      : S extends { type: infer T }
+                        ? WithNullable<S, MapType<T, S, Root, Depth, M>>
+                        : S extends { properties: unknown }
+                          ? WithNullable<S, ObjectType<S, Root, Depth, M>>
+                          : unknown;
 
 type UnionToIntersection<U> = (U extends unknown ? (k: U) => void : never) extends (
   k: infer I,
