@@ -22,7 +22,7 @@ import { doctor } from "./doctor.js";
 const HELP = `mcp-tada: typed tool calls derived from a live server's tools/list
 
 Usage:
-  mcp-tada init [--from <path>] [--out-dir <dir>] [--force]
+  mcp-tada init [--from <path>] [--out-dir <dir>] [--force] [--skills [--skills-dir <dir>]]
   mcp-tada doctor [--config <path>] [--offline] [--timeout <ms>]
   mcp-tada introspect [target flags] [--out <path>] [--name <TypeName>] [--json] [--verbose]
   mcp-tada check [target flags] --against <path> [--fail-on <level>]
@@ -30,7 +30,8 @@ Usage:
   mcp-tada --version
 
 init writes mcp-tada.config.json from the servers in .mcp.json, .cursor/mcp.json, .vscode/mcp.json
-or the Claude Desktop config (first found), or from --from <path>. doctor checks installed
+or the Claude Desktop config (first found), or from --from <path>. With --skills it also links
+the packaged agent skills into .claude/skills (or --skills-dir). doctor checks installed
 versions, the config, every snapshot, and (unless --offline) that each server answers.
 
 Target flags (one of):
@@ -340,6 +341,8 @@ export interface RunInitArgs {
   "out-dir"?: string;
   force?: boolean;
   config?: string;
+  skills?: boolean;
+  "skills-dir"?: string;
   help?: boolean;
 }
 
@@ -356,6 +359,8 @@ export function runInitWith(values: RunInitArgs): number {
       ...(values["out-dir"] !== undefined ? { outDir: values["out-dir"] } : {}),
       ...(values.config !== undefined ? { configPath: values.config } : {}),
       ...(values.force !== undefined ? { force: values.force } : {}),
+      ...(values.skills !== undefined ? { skills: values.skills } : {}),
+      ...(values["skills-dir"] !== undefined ? { skillsDir: values["skills-dir"] } : {}),
     });
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
@@ -364,6 +369,15 @@ export function runInitWith(values: RunInitArgs): number {
   const aliases = Object.keys(result.config.servers);
   console.error(`mcp-tada init: imported ${aliases.join(", ")} from ${result.source}`);
   for (const warning of result.warnings) console.error(`mcp-tada init: ${warning}`);
+  if (result.skills) {
+    const { dir, installed, skipped } = result.skills;
+    if (installed.length > 0) {
+      console.error(`mcp-tada init: installed ${installed.join(", ")} into ${dir}`);
+    }
+    if (skipped.length > 0) {
+      console.error(`mcp-tada init: ${skipped.join(", ")} already in ${dir}, left as is`);
+    }
+  }
   console.error(
     "\nNext:\n  mcp-tada introspect        # write each server's snapshot\n" +
       "  mcp-tada check             # in CI, fail when a server drifts from its snapshot",
@@ -379,6 +393,8 @@ async function runInit(argv: string[]): Promise<number> {
       "out-dir": { type: "string" },
       force: { type: "boolean" },
       config: { type: "string" },
+      skills: { type: "boolean" },
+      "skills-dir": { type: "string" },
       help: { type: "boolean" },
     },
   });

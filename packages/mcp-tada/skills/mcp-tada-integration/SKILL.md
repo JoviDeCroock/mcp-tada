@@ -52,8 +52,8 @@ if (!result.isError) result.structuredContent; // typed from outputSchema, else 
   writable. It forwards to the same client, so it is not a sandbox.
 - `combineMcpTada({ fs, gh })` merges typed clients, prefixing tool names with the alias
   (`"fs__read_file"`). `combined.tools.fs.read_file(...)` skips the prefix;
-  `combined.servers.gh` reaches the underlying client. Prompts are not merged; use
-  `servers.<alias>.getPrompt(...)`.
+  `combined.servers.gh` reaches the underlying client. Prompts are prefixed the same way:
+  `combined.getPrompt("gh__summarize", args)`, and `listPrompts()` returns prefixed names.
 - For a code-mode agent, give the model the snapshot text as the API declaration and let its
   program call `mcp.tools.*` in a sandbox. `node:vm` isolates scope, not privileges.
 

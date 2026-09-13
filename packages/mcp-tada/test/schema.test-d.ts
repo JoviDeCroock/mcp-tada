@@ -248,4 +248,58 @@ describe("FromOutputSchema", () => {
     };
     expectTypeOf<FromOutputSchema<S>>().toEqualTypeOf<{ a: string }>();
   });
+
+  test("patternProperties becomes an index signature next to declared properties", () => {
+    type S = {
+      type: "object";
+      properties: { id: { type: "string" } };
+      required: ["id"];
+      patternProperties: { "^x-": { type: "number" }; "^meta-": { type: "boolean" } };
+    };
+    const value = null as unknown as FromSchema<S>;
+    expectTypeOf(value.id).toEqualTypeOf<string>();
+    expectTypeOf(value["x-anything"]).toEqualTypeOf<number | boolean | undefined>();
+
+    // With no declared properties at all, the object is just the index signature.
+    type Bare = { type: "object"; patternProperties: { "^[a-z]+$": { type: "string" } } };
+    expectTypeOf<FromSchema<Bare>>().toEqualTypeOf<{ [k: string]: string }>();
+
+    // `additionalProperties: false` no longer seals the object when patterns are allowed.
+    type Sealed = Bare & { additionalProperties: false };
+    expectTypeOf<FromSchema<Sealed>>().toEqualTypeOf<{ [k: string]: string }>();
+  });
+
+  test("if / then / else unions the base with each branch applied", () => {
+    type S = {
+      type: "object";
+      properties: {
+        kind: { enum: ["file", "url"] };
+        path: { type: "string" };
+        url: { type: "string" };
+      };
+      required: ["kind"];
+      if: { properties: { kind: { const: "file" } } };
+      then: { required: ["path"] };
+      else: { required: ["url"]; properties: { headers: { type: "object" } } };
+    };
+    type T = FromSchema<S>;
+    const asFile: T = { kind: "file", path: "a" };
+    const asUrl: T = { kind: "url", url: "https://x", headers: { a: 1 } };
+    // @ts-expect-error neither branch's required property is present
+    const neither: T = { kind: "file" };
+    void asFile;
+    void asUrl;
+    void neither;
+
+    // Only `then`: the `else` side is the base unchanged.
+    type ThenOnly = {
+      type: "object";
+      properties: { a: { type: "string" }; b: { type: "number" } };
+      if: { properties: { a: { const: "x" } } };
+      then: { required: ["b"] };
+    };
+    expectTypeOf<FromSchema<ThenOnly>>().toEqualTypeOf<
+      { a?: string; b: number } | { a?: string; b?: number }
+    >();
+  });
 });

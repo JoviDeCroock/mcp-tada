@@ -1,6 +1,7 @@
 import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { GetPromptResult, Prompt, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { Introspection, ToolEntry, ToolNames, TypedClient } from "./index.js";
+import type { PromptEntry, PromptNames } from "./prompts.js";
 
 /** Any client produced by `initMcpTada<I>().typed(client)`, with its introspection erased. */
 export type AnyTypedClient = TypedClient<any>;
@@ -26,10 +27,21 @@ type PrefixedTools<Alias extends string, I extends Introspection, Sep extends st
   [N in ToolNames<I> as `${Alias}${Sep}${N}`]: I["tools"][N];
 };
 
+// Same for prompts: `{ summarize: ... }` -> `{ "fs__summarize": ... }`. A server without the
+// `prompts` capability contributes nothing.
+type PrefixedPrompts<
+  Alias extends string,
+  I extends Introspection,
+  Sep extends string,
+> = I extends { prompts: infer P extends Record<string, PromptEntry> }
+  ? { [N in keyof P & string as `${Alias}${Sep}${N}`]: P[N] }
+  : {};
+
 /**
- * A plain `Introspection` whose tool map is the union of every server's tools, each name
- * prefixed with its server alias and separator. Since the result is itself `Introspection`
- * shaped, `ToolNames`/`ToolArgs`/`ToolResult` keep working on it unmodified.
+ * A plain `Introspection` whose tool and prompt maps are the union of every server's, each
+ * name prefixed with its server alias and separator. Since the result is itself `Introspection`
+ * shaped, `ToolNames`/`ToolArgs`/`ToolResult`/`PromptNames`/`PromptArgs` keep working on it
+ * unmodified.
  */
 export type CombinedIntrospection<
   Map extends Record<string, Introspection>,
@@ -41,16 +53,21 @@ export type CombinedIntrospection<
     >,
     Record<string, ToolEntry>
   >;
+  prompts: Cast<
+    UnionToIntersection<
+      { [K in keyof Map & string]: PrefixedPrompts<K, Map[K], Sep> }[keyof Map & string]
+    >,
+    Record<string, PromptEntry>
+  >;
 };
 
 type ServersOf<M extends Record<string, AnyTypedClient>> = {
   [K in keyof M]: IntrospectionOf<M[K]>;
 };
 
-// Prompts are not namespaced by the combined client; reach them through `servers.<alias>`.
 export type CombinedClient<M extends Record<string, AnyTypedClient>, Sep extends string> = Omit<
   TypedClient<CombinedIntrospection<ServersOf<M>, Sep>>,
-  "listTools" | "client" | "tools" | "getPrompt" | "listPrompts"
+  "listTools" | "client" | "tools" | "listPrompts"
 > & {
   /** Direct access to each underlying typed client, keyed by its alias. */
   servers: M;
@@ -59,16 +76,24 @@ export type CombinedClient<M extends Record<string, AnyTypedClient>, Sep extends
   tools: { [K in keyof M]: M[K]["tools"] };
   /** Every server's tools, each named `<alias><separator><tool>`, ready for an LLM tool list. */
   listTools(): Promise<Tool[]>;
-  /** Splits a prefixed tool name back into its server alias and original tool name. */
-  split: (name: ToolNames<CombinedIntrospection<ServersOf<M>, Sep>> | (string & {})) => {
+  /** Every server's prompts, each named `<alias><separator><prompt>`. Servers without the
+   * `prompts` capability contribute nothing. */
+  listPrompts(): Promise<Prompt[]>;
+  /** Splits a prefixed tool or prompt name back into its server alias and original name. */
+  split: (
+    name:
+      | ToolNames<CombinedIntrospection<ServersOf<M>, Sep>>
+      | PromptNames<CombinedIntrospection<ServersOf<M>, Sep>>
+      | (string & {}),
+  ) => {
     server: keyof M & string;
     tool: string;
   };
 };
 
 /**
- * Combines several typed clients into one, namespacing every tool name as
- * `<alias><separator><tool>` (default separator `"__"`, matching how tool names get forwarded
+ * Combines several typed clients into one, namespacing every tool and prompt name as
+ * `<alias><separator><name>` (default separator `"__"`, matching how tool names get forwarded
  * into an LLM's tool list) so identically named tools on different servers never collide.
  */
 export function combineMcpTada<M extends Record<string, AnyTypedClient>, Sep extends string = "__">(
@@ -109,6 +134,16 @@ export function combineMcpTada<M extends Record<string, AnyTypedClient>, Sep ext
     return target.callTool(tool as never, args as never, callOptions);
   }
 
+  async function getPrompt(
+    name: string,
+    args?: Record<string, string>,
+    callOptions?: RequestOptions,
+  ): Promise<GetPromptResult> {
+    const { server, tool: prompt } = split(name);
+    const target = clients[server] as AnyTypedClient;
+    return target.getPrompt(prompt as never, args as never, callOptions);
+  }
+
   async function listTools(): Promise<Tool[]> {
     // Each server's typed `listTools()` already pages through `nextCursor` (see `./list.ts`),
     // so this only needs to fan out across servers and merge, not paginate itself.
@@ -121,12 +156,27 @@ export function combineMcpTada<M extends Record<string, AnyTypedClient>, Sep ext
     return lists.flat();
   }
 
+  async function listPrompts(): Promise<Prompt[]> {
+    const lists = await Promise.all(
+      Object.entries(clients).map(async ([alias, client]) => {
+        const prompts = await client.listPrompts();
+        return prompts.map((prompt) => ({ ...prompt, name: `${alias}${separator}${prompt.name}` }));
+      }),
+    );
+    return lists.flat();
+  }
+
   const tools = Object.fromEntries(
     Object.entries(clients).map(([alias, client]) => [alias, client.tools]),
   );
 
-  return { servers: clients, split, callTool, listTools, tools } as unknown as CombinedClient<
-    M,
-    Sep
-  >;
+  return {
+    servers: clients,
+    split,
+    callTool,
+    getPrompt,
+    listTools,
+    listPrompts,
+    tools,
+  } as unknown as CombinedClient<M, Sep>;
 }
