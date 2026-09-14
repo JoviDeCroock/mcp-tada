@@ -1,14 +1,6 @@
 // `mcp-tada/testing`: a typed fake for code that consumes a `TypedClient`. Handlers are checked
 // against the same snapshot as the real client, so a test that hands the wrong shape to an agent
 // fails to compile instead of failing at runtime. Nothing here talks to a server or the SDK.
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import type {
-  CallToolResult,
-  GetPromptResult,
-  Prompt,
-  Tool,
-} from "@modelcontextprotocol/sdk/types.js";
 import type {
   Introspection,
   ToolArgs,
@@ -18,6 +10,14 @@ import type {
   TypedClient,
 } from "./index.js";
 import type { PromptArgs, PromptNames } from "./prompts.js";
+import type {
+  ClientLike,
+  ContentBlock,
+  GetPromptResult,
+  Prompt,
+  RequestOptions,
+  Tool,
+} from "./wire.js";
 
 /**
  * What a mocked tool may resolve to: a full `CallToolResult` (typed like the real client's
@@ -27,16 +27,12 @@ import type { PromptArgs, PromptNames } from "./prompts.js";
  * is read as a full result; wrap it explicitly in that case.
  */
 export type MockToolReturn<I extends Introspection, N extends ToolNames<I>> =
-  | { content: CallToolResult["content"]; isError: true; structuredContent?: unknown }
+  | { content: ContentBlock[]; isError: true; structuredContent?: unknown }
   | (I["tools"][N] extends { outputSchema: unknown }
       ?
           | ToolOutput<I, N>
-          | {
-              content: CallToolResult["content"];
-              isError?: false;
-              structuredContent: ToolOutput<I, N>;
-            }
-      : { content: CallToolResult["content"]; isError?: false; structuredContent?: unknown });
+          | { content: ContentBlock[]; isError?: false; structuredContent: ToolOutput<I, N> }
+      : { content: ContentBlock[]; isError?: false; structuredContent?: unknown });
 
 /** A mocked tool: a fixed value, or a function of the typed `args` (and the call's options). */
 export type MockToolHandler<I extends Introspection, N extends ToolNames<I>> =
@@ -100,7 +96,7 @@ function toolMethods<T>(
 /** Stands in for `client` on the mock: any property read explains that there is no SDK client
  * behind it, instead of a bare "cannot read properties of undefined" deep in the code under test.
  * Symbols and `then` read as `undefined` so inspectors and `await` do not trip over it. */
-function noClient(): Client {
+function noClient(): ClientLike {
   return new Proxy(Object.create(null) as object, {
     get(_target, prop) {
       if (typeof prop !== "string" || prop === "then") return undefined;
@@ -108,7 +104,7 @@ function noClient(): Client {
         `mcp-tada/testing: this mock has no underlying SDK Client (tried to read client.${prop})`,
       );
     },
-  }) as Client;
+  }) as ClientLike;
 }
 
 function isFullResult(value: unknown): value is { content: unknown[] } {

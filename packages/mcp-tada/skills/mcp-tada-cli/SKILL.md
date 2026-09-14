@@ -10,7 +10,7 @@ Four commands. `--help` and `--version` are the only others.
 | Command | Does | Exits 1 when |
 | --- | --- | --- |
 | `init` | writes `mcp-tada.config.json` from `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, or Claude Desktop (`--from <path>` to pick); `--skills` also links the mcp-tada agent skills into `.claude/skills` (or `--skills-dir <dir>`) | no source config found (it prints every path it tried); config exists and no `--force` |
-| `doctor` | one `ok` / `warn` / `fail` line per setup check: SDK and TypeScript versions, config, snapshots, live servers (`--offline` skips connecting) | any check is `fail`. Warnings never fail, so it runs before the first `introspect` |
+| `doctor` | one `ok` / `warn` / `fail` line per setup check: the installed MCP SDK (v2 `@modelcontextprotocol/client`, or v1 `@modelcontextprotocol/sdk`) and TypeScript versions, config, snapshots, live servers (`--offline` skips connecting) | any check is `fail`. Warnings never fail, so it runs before the first `introspect` |
 | `introspect [alias]` | connects, pages `tools/list` and `prompts/list`, writes the snapshot | connection or timeout failure, naming the target |
 | `check [alias]` | re-introspects and diffs against the snapshot (`--against <path>` for an explicit file) | any difference at or above `--fail-on` (`any`, default; `dangerous`; `breaking`) |
 
@@ -55,3 +55,5 @@ The subpath exposes what the CLI runs minus argv parsing: `init`, `installSkills
 `diffIntrospection`, `formatReport`, `compareSchemas`, `parseDtsSnapshot`, ...). Unlike the CLI,
 no default timeout is applied unless `timeoutMs` is set. Exit codes are yours to decide.
 `report.changes` is the flat list of differences, each with `severity` and `reasons`, worst first.
+
+`introspect`, `check`, and `doctor` accept `--protocol legacy` (default), `--protocol auto`, or a pinned revision such as `--protocol 2026-07-28`. Auto and pins require SDK v2. The flag overrides each server's `protocol` config field.

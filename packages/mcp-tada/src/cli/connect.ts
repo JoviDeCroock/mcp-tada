@@ -1,16 +1,13 @@
 // Building blocks for connecting an MCP SDK Client to a target server, from either
 // CLI flags or a config file. Used by both `introspect` and `check`.
+//
+// The SDK itself is loaded lazily by `./sdk.ts`, from whichever package the project has
+// installed (v2 `@modelcontextprotocol/client` preferred, v1 `@modelcontextprotocol/sdk`
+// otherwise), so nothing here imports an SDK at module load.
 import { readFileSync } from "node:fs";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import {
-  StreamableHTTPClientTransport,
-  StreamableHTTPError,
-} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { SSEClientTransport, SseError } from "@modelcontextprotocol/sdk/client/sse.js";
-import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
+import type { ProtocolMode } from "./protocol.js";
+export { DEFAULT_PROTOCOL_MODE, versionNegotiationFor, type ProtocolMode } from "./protocol.js";
+import { loadSdk, type CliClient, type CliTransport, type LoadedSdk } from "./sdk.js";
 
 /** Applied to connecting and to each `tools/list` request when no `--timeout` is given and the
  * config file sets no `timeoutMs` for the server. */
@@ -18,6 +15,8 @@ export const DEFAULT_TIMEOUT_MS = 30_000;
 
 /** Where to reach a single MCP server: stdio (command/args/env) or HTTP (url/headers). */
 export interface ServerTarget {
+  /** Legacy by default; auto or a pinned revision requires SDK v2. */
+  protocol?: ProtocolMode;
   command?: string;
   args?: string[];
   env?: Record<string, string>;
@@ -93,6 +92,7 @@ export function loadConfig(path: string): McpTadaConfig {
     const timeoutMs =
       typeof entry["timeoutMs"] === "number" ? (entry["timeoutMs"] as number) : undefined;
     const normalized: ServerConfigEntry = {};
+    if (typeof entry["protocol"] === "string") normalized.protocol = entry["protocol"];
     if (command !== undefined) normalized.command = command;
     if (args !== undefined) normalized.args = args;
     if (env !== undefined) normalized.env = env;
@@ -105,19 +105,14 @@ export function loadConfig(path: string): McpTadaConfig {
   return { servers };
 }
 
-/** A fetch implementation that injects fixed headers into every request. */
-function fetchWithHeaders(headers: Record<string, string>): typeof fetch {
-  return (input, init) => {
-    const merged = new Headers(init?.headers);
-    for (const [k, v] of Object.entries(headers)) merged.set(k, v);
-    return fetch(input, { ...init, headers: merged });
-  };
-}
-
 export interface ConnectedClient {
-  client: Client;
-  transport: Transport;
+  client: CliClient;
+  transport: CliTransport;
   kind: "stdio" | "streamable-http" | "sse";
+  /** The SDK the client was built with. */
+  sdk: LoadedSdk;
+  /** The protocol version negotiated during connect, when the SDK exposes it. */
+  protocolVersion: string | undefined;
 }
 
 export interface ConnectOptions {
@@ -132,17 +127,8 @@ export function describeTarget(target: ServerTarget): string {
   return "target";
 }
 
-/** True for an `McpError` with code `RequestTimeout`, or a `DOMException`/`Error` produced by an
- * aborted-on-timeout fetch (the streamable HTTP / SSE transports surface those as plain aborts
- * rather than wrapping them in an `McpError`). */
-function isTimeoutError(err: unknown): boolean {
-  if (err instanceof McpError) return err.code === ErrorCode.RequestTimeout;
-  if (err instanceof Error) return err.name === "AbortError" || err.name === "TimeoutError";
-  return false;
-}
-
 /** Best-effort close; swallows errors since we're already handling a different failure. */
-async function closeQuietly(transport: Transport): Promise<void> {
+async function closeQuietly(transport: CliTransport): Promise<void> {
   try {
     await transport.close();
   } catch {
@@ -157,7 +143,7 @@ async function closeQuietly(transport: Transport): Promise<void> {
  * keeps any inherited stdio pipe open. A server that never completed the handshake has nothing to
  * flush, so kill it outright once `close()` has had its chance.
  */
-async function closeStdioHard(stdio: StdioClientTransport): Promise<void> {
+async function closeStdioHard(stdio: CliTransport): Promise<void> {
   const pid = stdio.pid;
   await closeQuietly(stdio);
   if (pid === null || pid === undefined) return;
@@ -170,8 +156,8 @@ async function closeStdioHard(stdio: StdioClientTransport): Promise<void> {
 
 /** Wraps a connect/list failure so it names the target: a timeout reads as such, and any other
  * failure (a bare `fetch failed`, a spawn error) carries the target and the underlying cause. */
-function wrapConnectError(err: unknown, target: ServerTarget): unknown {
-  if (isTimeoutError(err)) {
+function wrapConnectError(err: unknown, target: ServerTarget, sdk: LoadedSdk): unknown {
+  if (sdk.isTimeoutError(err)) {
     const ms = target.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     return new Error(`mcp-tada: connecting to "${describeTarget(target)}" timed out after ${ms}ms`);
   }
@@ -190,43 +176,50 @@ export async function connectClient(
   target: ServerTarget,
   opts: ConnectOptions = {},
 ): Promise<ConnectedClient> {
-  const client = new Client({
-    name: opts.clientName ?? "mcp-tada-cli",
-    version: opts.clientVersion ?? "0.0.0",
+  const sdk = await loadSdk();
+  const client = sdk.createClient(
+    {
+      name: opts.clientName ?? "mcp-tada-cli",
+      version: opts.clientVersion ?? "0.0.0",
+    },
+    target.protocol,
+  );
+  const requestOptions = target.timeoutMs !== undefined ? { timeout: target.timeoutMs } : undefined;
+  const connected = (transport: CliTransport, kind: ConnectedClient["kind"]): ConnectedClient => ({
+    client,
+    transport,
+    kind,
+    sdk,
+    // v2's Client reports the negotiated version; v1's does not, but its streamable HTTP
+    // transport does (and its stdio and SSE transports do not, so this can be undefined).
+    protocolVersion:
+      (
+        client as { getNegotiatedProtocolVersion?: () => string | undefined }
+      ).getNegotiatedProtocolVersion?.() ??
+      (transport as { protocolVersion?: string }).protocolVersion,
   });
-  const requestOptions: RequestOptions | undefined =
-    target.timeoutMs !== undefined ? { timeout: target.timeoutMs } : undefined;
 
   if (target.url) {
     const url = new URL(target.url);
-    const headers = target.headers ?? {};
-    const hasHeaders = Object.keys(headers).length > 0;
-    const streamable = new StreamableHTTPClientTransport(url, {
-      ...(hasHeaders ? { requestInit: { headers } } : {}),
-      ...(hasHeaders ? { fetch: fetchWithHeaders(headers) } : {}),
-    });
+    const headers =
+      target.headers && Object.keys(target.headers).length > 0 ? target.headers : undefined;
+    const streamable = sdk.streamableHttpTransport(url, headers);
     try {
-      // The SDK's own StreamableHTTPClientTransport doesn't satisfy its Transport type under
-      // exactOptionalPropertyTypes (sessionId is `string | undefined` vs `string`); cast at
-      // this boundary rather than relaxing our own tsconfig.
-      await client.connect(streamable as unknown as Transport, requestOptions);
-      return { client, transport: streamable as unknown as Transport, kind: "streamable-http" };
+      await client.connect(streamable, requestOptions);
+      return connected(streamable, "streamable-http");
     } catch (err) {
-      if (!isLikelyClientError(err)) {
-        await closeQuietly(streamable as unknown as Transport);
-        throw wrapConnectError(err, target);
+      if (!sdk.isLikelyClientError(err)) {
+        await closeQuietly(streamable);
+        throw wrapConnectError(err, target, sdk);
       }
       // Fall back to the deprecated SSE transport for older servers, per SDK guidance.
-      const sse = new SSEClientTransport(url, {
-        ...(hasHeaders ? { requestInit: { headers } } : {}),
-        ...(hasHeaders ? { eventSourceInit: { fetch: fetchWithHeaders(headers) } } : {}),
-      });
+      const sse = sdk.sseTransport(url, headers);
       try {
         await client.connect(sse, requestOptions);
-        return { client, transport: sse, kind: "sse" };
+        return connected(sse, "sse");
       } catch (err2) {
         await closeQuietly(sse);
-        throw wrapConnectError(err2, target);
+        throw wrapConnectError(err2, target, sdk);
       }
     }
   }
@@ -237,17 +230,19 @@ export async function connectClient(
       throw new Error("Empty --command / --stdio value");
     }
     const args = [...baseArgs, ...(target.args ?? [])];
-    const stdio = new StdioClientTransport({
+    // The whole environment, not the SDKs' default allowlist (HOME, PATH, ...): a server started
+    // from the CLI should see the same proxy, token and locale variables the CLI does.
+    const stdio = sdk.stdioTransport({
       command,
       args,
       env: { ...process.env, ...target.env } as Record<string, string>,
     });
     try {
       await client.connect(stdio, requestOptions);
-      return { client, transport: stdio, kind: "stdio" };
+      return connected(stdio, "stdio");
     } catch (err) {
       await closeStdioHard(stdio);
-      throw wrapConnectError(err, target);
+      throw wrapConnectError(err, target, sdk);
     }
   }
 
@@ -258,33 +253,17 @@ export async function connectClient(
  * closes the transport and rejects with a clear, target-naming error. */
 export async function withTimeoutWrapping<T>(
   target: ServerTarget,
-  transport: Transport,
+  connected: ConnectedClient,
   fn: () => Promise<T>,
 ): Promise<T> {
   try {
     return await fn();
   } catch (err) {
-    if (isTimeoutError(err)) {
-      if (transport instanceof StdioClientTransport) await closeStdioHard(transport);
-      else await closeQuietly(transport);
-      throw wrapConnectError(err, target);
+    if (connected.sdk.isTimeoutError(err)) {
+      if (connected.kind === "stdio") await closeStdioHard(connected.transport);
+      else await closeQuietly(connected.transport);
+      throw wrapConnectError(err, target, connected.sdk);
     }
     throw err;
   }
-}
-
-function isLikelyClientError(err: unknown): boolean {
-  if (err instanceof StreamableHTTPError) {
-    return err.code !== undefined && err.code >= 400 && err.code < 500;
-  }
-  if (err instanceof SseError) {
-    return err.code !== undefined && err.code >= 400 && err.code < 500;
-  }
-  return false;
-}
-
-/** Best-effort read of the negotiated protocol version; not all transports expose it. */
-export function getNegotiatedProtocolVersion(transport: Transport): string | undefined {
-  const withVersion = transport as unknown as { protocolVersion?: string };
-  return withVersion.protocolVersion;
 }

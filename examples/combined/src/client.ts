@@ -1,7 +1,6 @@
 // Several public servers behind one typed client. Tool names are prefixed with the alias, so a
 // `search` on two servers never collides, and the prefixed list can be handed to an LLM as is.
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { combineMcpTada, initMcpTada } from "mcp-tada";
 import type { introspection as Cloudflare } from "./cloudflare.introspection.js";
 import type { introspection as Context7 } from "./context7.introspection.js";

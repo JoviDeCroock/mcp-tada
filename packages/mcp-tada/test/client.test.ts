@@ -1,28 +1,32 @@
-import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { initMcpTada, readOnly } from "../src/index.js";
 import type { introspection } from "./fixtures/everything.introspection.d.ts";
+import { connectEverything, sdks, serverAvailable, type SdkClient } from "./helpers.js";
 
-const serverPath = fileURLToPath(
-  new URL("../node_modules/@modelcontextprotocol/server-everything/dist/index.js", import.meta.url),
-);
-const serverAvailable = existsSync(serverPath);
-
-describe.runIf(serverAvailable)("typed client (runtime, server-everything)", () => {
-  let client: Client;
-  let transport: StdioClientTransport;
+// The typed client accepts a `Client` from either SDK, so the runtime suite runs once per SDK
+// against the same server.
+describe.runIf(serverAvailable).each(sdks)("typed client (runtime, $label)", ({ sdk }) => {
+  let client: SdkClient;
 
   beforeAll(async () => {
-    transport = new StdioClientTransport({ command: "node", args: [serverPath] });
-    client = new Client({ name: "mcp-tada-test", version: "0.0.0" });
-    await client.connect(transport);
+    client = await connectEverything(sdk);
   });
 
   afterAll(async () => {
     await client.close();
+  });
+
+  it("forwards the request options to the SDK's callTool", async () => {
+    // Each SDK puts `options` in a different argument slot (v1 third, v2 second). A signal that
+    // is already aborted makes both reject before sending anything, so a call that resolves
+    // instead means the options were dropped on the floor.
+    const mcp = initMcpTada<introspection>().typed(client);
+    const signal = AbortSignal.abort(new Error("aborted before send"));
+    await expect(mcp.callTool("get-sum", { a: 2, b: 3 }, { signal })).rejects.toThrow();
+    await expect(mcp.tools["get-sum"]({ a: 2, b: 3 }, { signal })).rejects.toThrow();
+    // And the client is still usable afterwards.
+    const result = await mcp.callTool("get-sum", { a: 2, b: 3 });
+    expect(result.isError).not.toBe(true);
   });
 
   it("calls get-sum and gets an untyped structuredContent back as undefined", async () => {
@@ -80,6 +84,39 @@ describe("typed client (isError result, stub client)", () => {
     expect(result.isError).toBe(true);
     expect(result.structuredContent).toBeUndefined();
     expect(result.content).toEqual(errorResult.content);
+  });
+});
+
+describe("callTool argument slots (stub clients)", () => {
+  it("passes options as the third argument to a v1-shaped client", async () => {
+    const calls: unknown[][] = [];
+    const stub = {
+      listTools: async () => ({ tools: [] }),
+      callTool: async (...args: unknown[]) => {
+        calls.push(args);
+        return { content: [] };
+      },
+    };
+    const mcp = initMcpTada<introspection>().typed(stub as never);
+    await mcp.callTool("echo", { message: "hi" }, { timeout: 5 });
+    expect(calls).toEqual([
+      [{ name: "echo", arguments: { message: "hi" } }, undefined, { timeout: 5 }],
+    ]);
+  });
+
+  it("passes options as the second argument to a v2-shaped client (has getProtocolEra)", async () => {
+    const calls: unknown[][] = [];
+    const stub = {
+      getProtocolEra: () => "legacy",
+      listTools: async () => ({ tools: [] }),
+      callTool: async (...args: unknown[]) => {
+        calls.push(args);
+        return { content: [] };
+      },
+    };
+    const mcp = initMcpTada<introspection>().typed(stub as never);
+    await mcp.callTool("echo", { message: "hi" }, { timeout: 5 });
+    expect(calls).toEqual([[{ name: "echo", arguments: { message: "hi" } }, { timeout: 5 }]]);
   });
 });
 

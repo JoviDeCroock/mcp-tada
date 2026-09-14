@@ -2,8 +2,8 @@
 // applies the read-only filter to an existing typed client. Annotations are hints the server
 // attaches to a tool (`readOnlyHint`, `destructiveHint`, ...); the snapshot keeps them so an
 // agent harness can decide at compile time which tools it is willing to expose.
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { Introspection, ToolNames, TypedClient } from "./index.js";
+import type { ClientLike, Tool } from "./wire.js";
 
 /** A tool's recorded `annotations`, or `undefined` when the server sent none. */
 export type ToolAnnotationsOf<
@@ -42,12 +42,12 @@ export type ReadOnlyIntrospection<I extends Introspection> = PickTools<I, ReadOn
  * same annotation, so the result is safe to hand to an LLM as-is. The view forwards to the
  * same underlying client; it is a type-level restriction plus one runtime filter, not a sandbox.
  */
-export function readOnly<I extends Introspection>(
-  mcp: TypedClient<I>,
-): TypedClient<ReadOnlyIntrospection<I>> {
+export function readOnly<I extends Introspection, C extends ClientLike>(
+  mcp: TypedClient<I, C>,
+): TypedClient<ReadOnlyIntrospection<I>, C> {
   return {
     ...mcp,
     listTools: async () =>
       (await mcp.listTools()).filter((tool: Tool) => tool.annotations?.readOnlyHint === true),
-  } as unknown as TypedClient<ReadOnlyIntrospection<I>>;
+  } as unknown as TypedClient<ReadOnlyIntrospection<I>, C>;
 }

@@ -1,11 +1,11 @@
-import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-  CallToolRequestSchema,
-  type ContentBlock,
-  ListToolsRequestSchema,
-  type Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+import type {
+  CallToolResult,
+  ContentBlock,
+  ListToolsResult,
+  McpServer,
+  Server,
+  Tool,
+} from "@modelcontextprotocol/server";
 import { isWrappedToolReturn, type AnyToolDefinition } from "./define.js";
 import { validate, type ValidationError } from "./validate.js";
 
@@ -22,13 +22,13 @@ export type RegisterToolsOptions = {
  * Registers a record of `defineTool`/`defineTools` definitions on an `McpServer` or a plain
  * low-level `Server`.
  *
- * The SDK's high-level `McpServer.registerTool` only accepts Zod (or Standard Schema) input,
- * so passing plain JSON Schema through it and getting the exact same `inputSchema`/`outputSchema`
- * back on the wire is not possible (see `@modelcontextprotocol/sdk` 1.30's `AnySchema`, which is
- * `z3.ZodTypeAny | z4.$ZodType`, not raw JSON Schema). `registerTools` instead installs the
- * low-level `tools/list` and `tools/call` request handlers directly on the low-level server
- * (`server.server` when given an `McpServer`, or `server` itself when given a plain `Server`), so
- * the JSON Schema objects you wrote in `defineTool` are emitted verbatim.
+ * The SDK's high-level `McpServer.registerTool` takes a Standard Schema object (Zod, or a JSON
+ * Schema wrapped by the SDK's `fromJsonSchema`) and derives the wire `inputSchema`/`outputSchema`
+ * from it, so what reaches `tools/list` is the SDK's rendering rather than the JSON Schema you
+ * wrote. `registerTools` instead installs the low-level `tools/list` and `tools/call` request
+ * handlers directly on the low-level server (`server.server` when given an `McpServer`, or
+ * `server` itself when given a plain `Server`), so the JSON Schema objects you wrote in
+ * `defineTool` are emitted verbatim.
  *
  * Because of that, when given an `McpServer`, `registerTools` owns the `tools/list`/`tools/call`
  * handlers on it: call it at most once per `McpServer`, and don't also call `server.registerTool`
@@ -68,11 +68,11 @@ export function registerTools<Tools extends Record<string, AnyToolDefinition>>(
     );
   }
 
-  lowLevel.setRequestHandler(ListToolsRequestSchema, async () => ({
+  lowLevel.setRequestHandler("tools/list", async (): Promise<ListToolsResult> => ({
     tools: Array.from(byName.values(), toWireTool),
   }));
 
-  lowLevel.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+  lowLevel.setRequestHandler("tools/call", async (request, ctx): Promise<CallToolResult> => {
     const tool = byName.get(request.params.name);
     if (!tool) {
       throw new Error(`Unknown tool: ${request.params.name}`);
@@ -86,7 +86,7 @@ export function registerTools<Tools extends Record<string, AnyToolDefinition>>(
 
     let result: any;
     try {
-      result = await tool.handler(args, extra);
+      result = await tool.handler(args, ctx);
     } catch (err) {
       return {
         isError: true,

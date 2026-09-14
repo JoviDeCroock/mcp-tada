@@ -1,16 +1,12 @@
-import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import type {
-  ContentBlock,
-  ServerNotification,
-  ServerRequest,
-  ToolAnnotations,
-} from "@modelcontextprotocol/sdk/types.js";
-import type { FromSchema } from "mcp-tada";
+import type { ContentBlock, ServerContext } from "@modelcontextprotocol/server";
+import type { FromSchema, ToolAnnotations } from "mcp-tada";
 
 export type { FromSchema } from "mcp-tada";
 
-/** The `extra` argument every tool handler receives, matching the SDK's low-level shape. */
-export type ToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
+/** The context argument every tool handler receives: SDK v2's `ServerContext`, the same `ctx`
+ * a low-level `setRequestHandler("tools/call", …)` handler gets (`ctx.mcpReq.signal`,
+ * `ctx.sessionId`, `ctx.http?.authInfo`, ...). */
+export type ToolExtra = ServerContext;
 
 /**
  * A handler may return the bare structured content (the common case), or, when it needs to

@@ -5,11 +5,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import {
   DEFAULT_TIMEOUT_MS,
+  type ProtocolMode,
   loadConfig,
   type McpTadaConfig,
   type ServerConfigEntry,
   type ServerTarget,
 } from "./connect.js";
+import { SDK_PREFERENCE, SDKS } from "./sdk.js";
 import { diffIntrospection } from "./check.js";
 import { DEFAULT_CONFIG_PATH } from "./init.js";
 import { buildIntrospectionData, introspectTarget } from "./introspect.js";
@@ -25,6 +27,8 @@ export interface DoctorCheck {
 }
 
 export interface DoctorOptions {
+  /** Override each configured server's protocol negotiation mode. */
+  protocol?: ProtocolMode;
   /** Directory the config and snapshots are resolved from, and packages are resolved for.
    * Defaults to `process.cwd()`. */
   cwd?: string;
@@ -44,7 +48,9 @@ export interface DoctorResult {
 }
 
 /** Minimum SDK the client is tested against; matches the `peerDependencies` range. */
-export const MIN_SDK_VERSION = "1.20.0";
+/** The oldest SDK v2 release the CLI is tested against. The v1 floor, and the order the CLI
+ * tries the SDKs in, live with the loader in `./sdk.ts`. */
+export const MIN_SDK_VERSION = SDKS.v2.minVersion;
 /** `const` type parameters, which the server package relies on, arrived in TypeScript 5.0;
  * 5.4 is the tested floor and the `peerDependencies` range. */
 export const MIN_TYPESCRIPT_VERSION = "5.4.0";
@@ -78,8 +84,14 @@ export function installedVersion(name: string, cwd: string): string | undefined 
   }
 }
 
-function toTarget(entry: ServerConfigEntry, timeoutMs: number | undefined): ServerTarget {
+function toTarget(
+  entry: ServerConfigEntry,
+  timeoutMs: number | undefined,
+  protocol: ProtocolMode | undefined,
+): ServerTarget {
   const target: ServerTarget = {};
+  const mode = protocol ?? entry.protocol;
+  if (mode !== undefined) target.protocol = mode;
   if (entry.command !== undefined) target.command = entry.command;
   if (entry.args !== undefined) target.args = entry.args;
   if (entry.env !== undefined) target.env = entry.env;
@@ -94,22 +106,32 @@ export async function doctor(opts: DoctorOptions = {}): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
   const push = (status: DoctorStatus, subject: string, detail: string) =>
     checks.push({ status, subject, detail });
+  const checkFloor = (subject: string, version: string, floor: string, okDetail: string) =>
+    versionAtLeast(version, floor)
+      ? push("ok", subject, okDetail)
+      : push("warn", subject, `${version} installed, ${floor} or newer expected`);
 
-  const sdk = installedVersion("@modelcontextprotocol/sdk", cwd);
-  if (sdk === undefined) {
+  // Which SDK the CLI will run on: the first installed one in the loader's preference order.
+  const installed = SDK_PREFERENCE.flatMap((choice) => {
+    const version = installedVersion(SDKS[choice].packageName, cwd);
+    return version === undefined ? [] : [{ ...SDKS[choice], version }];
+  });
+  const [chosen, ...others] = installed;
+  if (chosen === undefined) {
     push(
       "fail",
-      "@modelcontextprotocol/sdk",
-      "not installed (it is a peer dependency of mcp-tada)",
-    );
-  } else if (!versionAtLeast(sdk, MIN_SDK_VERSION)) {
-    push(
-      "warn",
-      "@modelcontextprotocol/sdk",
-      `${sdk} installed, ${MIN_SDK_VERSION} or newer expected`,
+      SDKS.v2.packageName,
+      `no MCP SDK installed: the CLI needs ${SDKS.v2.packageName} (SDK v2) or ` +
+        `${SDKS.v1.packageName} (v1), both optional peer dependencies of mcp-tada`,
     );
   } else {
-    push("ok", "@modelcontextprotocol/sdk", sdk);
+    const also = others.map((o) => `; ${o.packageName} ${o.version} is also installed`).join("");
+    checkFloor(
+      chosen.packageName,
+      chosen.version,
+      chosen.minVersion,
+      `${chosen.version} (SDK ${chosen.choice}; the CLI runs on it${also})`,
+    );
   }
 
   const ts = installedVersion("typescript", cwd);
@@ -119,10 +141,8 @@ export async function doctor(opts: DoctorOptions = {}): Promise<DoctorResult> {
       "typescript",
       "not installed; the typed client is type-level only, so nothing is checked",
     );
-  } else if (!versionAtLeast(ts, MIN_TYPESCRIPT_VERSION)) {
-    push("warn", "typescript", `${ts} installed, ${MIN_TYPESCRIPT_VERSION} or newer expected`);
   } else {
-    push("ok", "typescript", ts);
+    checkFloor("typescript", ts, MIN_TYPESCRIPT_VERSION, ts);
   }
 
   const configRel = opts.configPath ?? DEFAULT_CONFIG_PATH;
@@ -204,7 +224,9 @@ export async function doctor(opts: DoctorOptions = {}): Promise<DoctorResult> {
       }
       if (opts.connect === false) continue;
       try {
-        const { meta, ...source } = await introspectTarget(toTarget(entry, opts.timeoutMs));
+        const { meta, ...source } = await introspectTarget(
+          toTarget(entry, opts.timeoutMs, opts.protocol),
+        );
         const live = buildIntrospectionData(source);
         const name =
           meta.serverName !== undefined

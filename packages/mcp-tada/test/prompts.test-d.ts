@@ -1,8 +1,7 @@
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import type { GetPromptResult } from "@modelcontextprotocol/sdk/types.js";
+import type { Client } from "@modelcontextprotocol/client";
 import { describe, expectTypeOf, test } from "vitest";
 import { initMcpTada } from "../src/index.js";
-import type { PromptArgs, PromptNames } from "../src/index.js";
+import type { GetPromptResult, PromptArgs, PromptNames } from "../src/index.js";
 import type { introspection } from "./fixtures/everything.introspection.d.ts";
 
 declare const client: Client;

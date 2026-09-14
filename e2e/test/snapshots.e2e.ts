@@ -2,11 +2,13 @@
 // back to the same data, and the committed snapshots still match what the servers serve today.
 // A failure in the second block is a real server changing its contract; regenerate with
 // `pnpm --filter @mcp-tada/e2e introspect` and review the diff.
-import { check, introspect, parseDtsSnapshot } from "mcp-tada/cli";
-import { describe, expect, it } from "vitest";
+import { check, introspect, parseDtsSnapshot, SDK_ENV } from "mcp-tada/cli";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { configuredServers } from "./helpers.js";
 
-describe.each(configuredServers())("$alias", ({ alias, target, output }) => {
+const servers = configuredServers();
+
+describe.each(servers)("$alias", ({ alias, target, output }) => {
   it("introspects live and round-trips through the .d.ts format", async () => {
     const result = await introspect({ target, write: false });
     expect(Object.keys(result.data.tools).length).toBeGreaterThan(0);
@@ -27,3 +29,19 @@ describe.each(configuredServers())("$alias", ({ alias, target, output }) => {
     expect(report.identical).toBe(true);
   });
 });
+
+// The stdio servers again through the v1 SDK, which the CLI falls back to when only
+// `@modelcontextprotocol/sdk` is installed: the snapshot it produces must be the committed one.
+describe.each(servers.filter((s) => s.target.command !== undefined))(
+  "$alias through the v1 SDK",
+  ({ target, output }) => {
+    beforeAll(() => vi.stubEnv(SDK_ENV, "v1"));
+    afterAll(() => vi.unstubAllEnvs());
+
+    it("still matches the committed snapshot", async () => {
+      const { report, text } = await check({ target, against: output });
+      expect(text, text).toContain("no differences");
+      expect(report.identical).toBe(true);
+    });
+  },
+);

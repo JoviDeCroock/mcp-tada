@@ -7,8 +7,10 @@ Compile-time typed [Model Context Protocol](https://modelcontextprotocol.io) too
 ## Install
 
 ```sh
-pnpm add mcp-tada @modelcontextprotocol/sdk
+pnpm add mcp-tada @modelcontextprotocol/client
 ```
+
+Both MCP SDKs work: the typed client accepts a `Client` from v2 (`@modelcontextprotocol/client`) or v1 (`@modelcontextprotocol/sdk`), and the CLI uses whichever one is installed, v2 first. The CLI defaults to the legacy handshake; `--protocol auto` or `--protocol 2026-07-28` opts into modern negotiation with SDK v2. See [SDK versions](https://github.com/JoviDeCroock/mcp-tada#sdk-versions) in the repository README.
 
 ## Generate a snapshot
 
@@ -25,8 +27,7 @@ The file is a strict JSON type literal with each tool's title and description as
 ## Use it
 
 ```ts
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { initMcpTada } from "mcp-tada";
 import type { introspection } from "./deepwiki.introspection.js";
 

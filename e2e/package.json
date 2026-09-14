@@ -10,11 +10,12 @@
     "check": "mcp-tada check --config mcp-tada.config.json"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/client": "^2.0.0",
     "mcp-tada": "workspace:*",
     "mcp-tada-server": "workspace:*"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@modelcontextprotocol/server-filesystem": "2026.8.31",
     "@modelcontextprotocol/server-memory": "2026.8.31",
     "@types/node": "^26.5.0",

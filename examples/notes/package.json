@@ -8,12 +8,15 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "introspect": "tsc -p tsconfig.server.json && mcp-tada introspect --config mcp-tada.config.json",
     "check": "tsc -p tsconfig.server.json && mcp-tada check --config mcp-tada.config.json",
-    "start": "pnpm build && node dist/client.js"
+    "start": "pnpm build && node dist/client.js",
+    "start:v1": "pnpm build && node dist/client-v1.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "mcp-tada": "workspace:*",
-    "mcp-tada-server": "workspace:*"
+    "mcp-tada-server": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0"
   },
   "devDependencies": {
     "@types/node": "^26.5.0",

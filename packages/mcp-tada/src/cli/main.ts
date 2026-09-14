@@ -10,6 +10,8 @@ import {
   parseEnvFlag,
   parseHeaderFlag,
   splitCommandLine,
+  versionNegotiationFor,
+  type ProtocolMode,
   type ServerConfigEntry,
   type ServerTarget,
 } from "./connect.js";
@@ -46,6 +48,10 @@ Target flags (one of):
                                   (or just [alias] if given as a positional argument)
   --timeout <ms>                 connect and tools/list timeout, default 30000 (overrides a
                                   server's "timeoutMs" in --config)
+  --protocol <mode>              "legacy" (default): use the 2025-era handshake; "auto": probe
+                                  for protocol 2026-07-28; a revision such as "2026-07-28":
+                                  require exactly that (auto and pins require SDK v2)
+                                  (overrides a server's "protocol" in --config)
 
 check flags:
   --fail-on <level>              the least severe difference that exits 1: "any" (default),
@@ -75,6 +81,7 @@ interface TargetFlagValues {
   header?: string[];
   config?: string;
   timeout?: string;
+  protocol?: string;
 }
 
 const TARGET_OPTIONS = {
@@ -86,6 +93,7 @@ const TARGET_OPTIONS = {
   header: { type: "string", multiple: true },
   config: { type: "string" },
   timeout: { type: "string" },
+  protocol: { type: "string" },
 } as const;
 
 /** Parses `--timeout`, throwing a plain `Error` (no stack noise) on a non-positive-integer value. */
@@ -98,6 +106,13 @@ function parseTimeoutFlag(value: string | undefined): number | undefined {
     );
   }
   return ms;
+}
+
+/** Parses `--protocol`, throwing a plain `Error` on anything but `auto`, `legacy`, or a date. */
+function parseProtocolFlag(value: string | undefined): ProtocolMode | undefined {
+  if (value === undefined) return undefined;
+  versionNegotiationFor(value); // validates
+  return value;
 }
 
 function targetFromFlags(values: TargetFlagValues): ServerTarget | undefined {
@@ -120,12 +135,15 @@ function targetFromFlags(values: TargetFlagValues): ServerTarget | undefined {
     target.headers = Object.fromEntries(values.header.map(parseHeaderFlag));
   }
   target.timeoutMs = parseTimeoutFlag(values.timeout) ?? DEFAULT_TIMEOUT_MS;
+  const protocol = parseProtocolFlag(values.protocol);
+  if (protocol !== undefined) target.protocol = protocol;
   return target;
 }
 
 function configEntryToTarget(
   entry: ServerConfigEntry,
   timeoutFlagMs: number | undefined,
+  protocolFlag: ProtocolMode | undefined,
 ): ServerTarget {
   const target: ServerTarget = {};
   if (entry.command !== undefined) target.command = entry.command;
@@ -134,7 +152,25 @@ function configEntryToTarget(
   if (entry.url !== undefined) target.url = entry.url;
   if (entry.headers !== undefined) target.headers = entry.headers;
   target.timeoutMs = timeoutFlagMs ?? entry.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const protocol = protocolFlag ?? entry.protocol;
+  if (protocol !== undefined) target.protocol = protocol;
   return target;
+}
+
+/** The flags every target-taking command parses up front, so a bad value exits 1 with one line
+ * instead of a stack trace. */
+function parseTargetFlags(
+  values: TargetFlagValues,
+): { timeoutMs: number | undefined; protocol: ProtocolMode | undefined } | undefined {
+  try {
+    return {
+      timeoutMs: parseTimeoutFlag(values.timeout),
+      protocol: parseProtocolFlag(values.protocol),
+    };
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    return undefined;
+  }
 }
 
 /** Parsed `mcp-tada introspect` flags, independent of `node:util`'s `parseArgs` value shape, so
@@ -155,13 +191,9 @@ export async function runIntrospectWith(values: RunIntrospectArgs): Promise<numb
     return 0;
   }
 
-  let timeoutMs: number | undefined;
-  try {
-    timeoutMs = parseTimeoutFlag(values.timeout);
-  } catch (err) {
-    console.error(err instanceof Error ? err.message : String(err));
-    return 1;
-  }
+  const flags = parseTargetFlags(values);
+  if (!flags) return 1;
+  const { timeoutMs, protocol } = flags;
 
   const explicitTarget = targetFromFlags(values);
   if (explicitTarget) {
@@ -207,7 +239,7 @@ export async function runIntrospectWith(values: RunIntrospectArgs): Promise<numb
       values.out ?? entry.output ?? `${alias}.introspection.${values.json ? "json" : "d.ts"}`;
     console.error(`mcp-tada introspect: ${alias}`);
     const result = await introspect({
-      target: configEntryToTarget(entry, timeoutMs),
+      target: configEntryToTarget(entry, timeoutMs, protocol),
       out,
       ...(values.name !== undefined ? { name: values.name } : {}),
       ...(values.json !== undefined ? { json: values.json } : {}),
@@ -248,13 +280,9 @@ export async function runCheckWith(values: RunCheckArgs): Promise<number> {
     return 0;
   }
 
-  let timeoutMs: number | undefined;
-  try {
-    timeoutMs = parseTimeoutFlag(values.timeout);
-  } catch (err) {
-    console.error(err instanceof Error ? err.message : String(err));
-    return 1;
-  }
+  const flags = parseTargetFlags(values);
+  if (!flags) return 1;
+  const { timeoutMs, protocol } = flags;
 
   const failOn = values["fail-on"] ?? "any";
   const threshold = FAIL_ON[failOn];
@@ -302,7 +330,7 @@ export async function runCheckWith(values: RunCheckArgs): Promise<number> {
         failed = true;
         continue;
       }
-      runs.push({ target: configEntryToTarget(entry, timeoutMs), against });
+      runs.push({ target: configEntryToTarget(entry, timeoutMs, protocol), against });
     }
   }
 
@@ -402,6 +430,7 @@ async function runInit(argv: string[]): Promise<number> {
 }
 
 export interface RunDoctorArgs {
+  protocol?: string;
   config?: string;
   offline?: boolean;
   timeout?: string;
@@ -414,16 +443,13 @@ export async function runDoctorWith(values: RunDoctorArgs): Promise<number> {
     console.log(HELP);
     return 0;
   }
-  let timeoutMs: number | undefined;
-  try {
-    timeoutMs = parseTimeoutFlag(values.timeout);
-  } catch (err) {
-    console.error(err instanceof Error ? err.message : String(err));
-    return 1;
-  }
+  const flags = parseTargetFlags(values);
+  if (!flags) return 1;
+  const { timeoutMs, protocol } = flags;
   const result = await doctor({
     ...(values.config !== undefined ? { configPath: values.config } : {}),
     ...(values.offline ? { connect: false } : {}),
+    ...(protocol !== undefined ? { protocol } : {}),
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),
   });
   process.stdout.write(result.text);
@@ -436,6 +462,7 @@ async function runDoctor(argv: string[]): Promise<number> {
     options: {
       config: { type: "string" },
       offline: { type: "boolean" },
+      protocol: { type: "string" },
       timeout: { type: "string" },
       help: { type: "boolean" },
     },

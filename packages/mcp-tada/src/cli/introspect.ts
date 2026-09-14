@@ -3,14 +3,9 @@
 // data as JSON.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { Prompt, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { listAllPrompts, listAllTools } from "../list.js";
-import {
-  connectClient,
-  getNegotiatedProtocolVersion,
-  withTimeoutWrapping,
-  type ServerTarget,
-} from "./connect.js";
+import type { Prompt, Tool } from "../wire.js";
+import { connectClient, withTimeoutWrapping, type ServerTarget } from "./connect.js";
 import type {
   IntrospectionData,
   PromptSnapshot,
@@ -25,8 +20,9 @@ export interface IntrospectMeta {
   toolsListChanged?: boolean;
   /** Set when the server declares the `prompts` capability. */
   promptsListChanged?: boolean;
-  /** Read defensively: not present in @modelcontextprotocol/sdk 1.30's ListToolsResult type,
-   * but the 2026-07-28 spec RC adds server-controlled result caching hints. */
+  /** Read defensively: the 2026-07-28 spec revision adds server-controlled result caching hints
+   * to `tools/list`, but a server only sends them on a connection that negotiated that revision,
+   * and the CLI uses the legacy handshake unless protocol selection opts in. */
   ttlMs?: number;
   /** Same caveat as ttlMs above. */
   cacheScope?: string;
@@ -52,13 +48,14 @@ export interface IntrospectSource {
 export async function introspectTarget(
   target: ServerTarget,
 ): Promise<IntrospectSource & { meta: IntrospectMeta }> {
-  const { client, transport } = await connectClient(target);
+  const connected = await connectClient(target);
+  const { client } = connected;
   try {
     const caps = client.getServerCapabilities();
     const version = client.getServerVersion();
     let lastRaw: RawToolListResult | undefined;
     const listOptions = target.timeoutMs !== undefined ? { timeout: target.timeoutMs } : undefined;
-    const tools = await withTimeoutWrapping(target, transport, () =>
+    const tools = await withTimeoutWrapping(target, connected, () =>
       listAllTools<RawToolListResult & { tools: Tool[] }>(
         (params) =>
           client.listTools(params, listOptions) as Promise<RawToolListResult & { tools: Tool[] }>,
@@ -70,7 +67,7 @@ export async function introspectTarget(
     let prompts: Prompt[] | undefined;
     if (caps?.prompts !== undefined) {
       try {
-        prompts = await withTimeoutWrapping(target, transport, () =>
+        prompts = await withTimeoutWrapping(target, connected, () =>
           listAllPrompts((params) => client.listPrompts(params, listOptions)),
         );
       } catch (err) {
@@ -82,9 +79,6 @@ export async function introspectTarget(
       }
     }
 
-    // NOTE: getNegotiatedProtocolVersion() only tells us anything for the streamable HTTP
-    // transport, which exposes it publicly; stdio/SSE don't expose the negotiated version
-    // on the SDK 1.30 Transport type, so this can legitimately be undefined.
     const meta: IntrospectMeta = {};
     if (version?.name !== undefined) meta.serverName = version.name;
     if (version?.version !== undefined) meta.serverVersion = version.version;
@@ -92,8 +86,7 @@ export async function introspectTarget(
     if (caps?.prompts !== undefined) meta.promptsListChanged = caps.prompts.listChanged ?? false;
     if (lastRaw?.ttlMs !== undefined) meta.ttlMs = lastRaw.ttlMs;
     if (lastRaw?.cacheScope !== undefined) meta.cacheScope = lastRaw.cacheScope;
-    const protocolVersion = getNegotiatedProtocolVersion(transport);
-    if (protocolVersion !== undefined) meta.protocolVersion = protocolVersion;
+    if (connected.protocolVersion !== undefined) meta.protocolVersion = connected.protocolVersion;
     return prompts !== undefined ? { tools, prompts, meta } : { tools, meta };
   } finally {
     // withTimeoutWrapping already closed the transport on a timeout; a second close is a no-op

@@ -1,6 +1,7 @@
 {
   "servers": {
     "notes": {
+      "protocol": "auto",
       "command": "node",
       "args": ["dist/server.js"],
       "output": "src/notes.introspection.d.ts"

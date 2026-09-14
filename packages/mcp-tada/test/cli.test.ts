@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerTarget } from "../src/cli/connect.js";
@@ -7,6 +7,7 @@ import { introspect } from "../src/cli/introspect.js";
 import { check } from "../src/cli/check.js";
 import { parseDtsSnapshot, parseSnapshotText, detectFormat } from "../src/cli/snapshot.js";
 import { runCheckWith, runIntrospectWith } from "../src/cli/main.js";
+import { SDK_ENV } from "../src/cli/sdk.js";
 
 const EVERYTHING_SERVER = "node_modules/@modelcontextprotocol/server-everything/dist/index.js";
 
@@ -96,9 +97,9 @@ describe("introspect", () => {
     ).rejects.toThrow(/pass --json/);
   });
 
-  it("omits the protocolVersion header line when the transport does not expose it", async () => {
+  it("records the negotiated protocolVersion in the header, on stdio too", async () => {
     const result = await introspect({ target, write: false });
-    expect(result.text).not.toContain("protocolVersion");
+    expect(result.text).toMatch(/^\/\/ protocolVersion: \d{4}-\d{2}-\d{2}$/m);
   }, 30_000);
 
   it("emits a JSDoc block with title/description above each tool", async () => {
@@ -338,6 +339,35 @@ describe("introspect --out with a config file", () => {
   }, 30_000);
 });
 
+// A "server" that never answers: it records its pid, then idles for a minute. After the connect
+// timeout the CLI must have killed it; otherwise the orphan keeps the inherited stdio pipes open
+// and whatever spawned the CLI (a test runner, a CI step) hangs until the child exits on its own.
+async function expectTimeoutToKillChild(): Promise<void> {
+  const pidFile = tmpFile("server.pid");
+  const slow: ServerTarget = {
+    command: "node",
+    args: [
+      "-e",
+      "require('fs').writeFileSync(process.argv[1], String(process.pid)); setTimeout(() => {}, 60_000)",
+      pidFile,
+    ],
+    timeoutMs: 300,
+  };
+  await expect(introspect({ target: slow, write: false })).rejects.toThrow(
+    /connecting to "node" timed out after 300ms/,
+  );
+  const pid = Number(readFileSync(pidFile, "utf8"));
+  expect(pid).toBeGreaterThan(0);
+  await vi.waitFor(
+    () => {
+      // `kill(pid, 0)` throws ESRCH once the process is gone (a zombie still counts as present
+      // until reaped, which the SDK's exit handler does).
+      expect(() => process.kill(pid, 0)).toThrow();
+    },
+    { timeout: 5_000, interval: 50 },
+  );
+}
+
 describe("--timeout", () => {
   // A stdio "server" that never speaks MCP: connectClient (and, for check, introspectTarget's
   // tools/list) must time out instead of hanging.
@@ -347,9 +377,9 @@ describe("--timeout", () => {
     timeoutMs: 200,
   };
 
-  it("introspect fails fast with a message naming the target", async () => {
-    await expect(introspect({ target: silentTarget, write: false })).rejects.toThrow(/timed out/);
-  }, 10_000);
+  it("introspect fails fast, names the target, and kills the child", async () => {
+    await expectTimeoutToKillChild();
+  }, 30_000);
 
   it("names the target and the cause when a URL cannot be reached", async () => {
     const target: ServerTarget = {
@@ -366,4 +396,43 @@ describe("--timeout", () => {
     writeFileSync(out, JSON.stringify({ tools: {} }));
     await expect(check({ target: silentTarget, against: out })).rejects.toThrow(/timed out/);
   }, 10_000);
+});
+
+// The same CLI paths through the v1 SDK, which `loadSdk` picks when `MCP_TADA_SDK=v1` (or when
+// only v1 is installed). server-everything itself is a v1 server, so both SDKs talk 2025-11-25.
+describe("introspect and check through the v1 SDK", () => {
+  let viaV1: string;
+  let viaV2File: string;
+
+  beforeAll(async () => {
+    viaV2File = tmpFile("introspection.d.ts");
+    vi.stubEnv(SDK_ENV, "v2");
+    await introspect({ target, out: viaV2File });
+    vi.stubEnv(SDK_ENV, "v1");
+    viaV1 = (await introspect({ target, write: false })).text;
+  }, 60_000);
+  afterAll(() => vi.unstubAllEnvs());
+
+  it("produces the same tool and prompt data as the v2 SDK", () => {
+    const v1 = parseDtsSnapshot(viaV1);
+    const v2 = parseDtsSnapshot(readFileSync(viaV2File, "utf8"));
+    expect(v1.tools).toEqual(v2.tools);
+    expect(v1.prompts).toEqual(v2.prompts);
+    expect(Object.keys(v1.tools)).toContain("get-sum");
+  });
+
+  it("omits the protocolVersion header on stdio: v1's Client does not expose it", () => {
+    expect(viaV1).not.toMatch(/^\/\/ protocolVersion:/m);
+    expect(viaV1).toMatch(/^\/\/ server: /m);
+  });
+
+  it("check reports no differences against a snapshot the v2 SDK wrote", async () => {
+    const { report, text } = await check({ target, against: viaV2File });
+    expect(text, text).toContain("no differences");
+    expect(report.identical).toBe(true);
+  }, 30_000);
+
+  it("times out with a target-naming error and kills the child, same as on v2", async () => {
+    await expectTimeoutToKillChild();
+  }, 30_000);
 });

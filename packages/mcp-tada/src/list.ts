@@ -1,15 +1,11 @@
 // Shared `tools/list` pagination helper: several call sites (the typed client's `listTools()`,
 // the combined client's `listTools()`, and `mcp-tada introspect`) need to page through
 // `nextCursor` until it's exhausted and return every tool. This is that loop, written once.
-import type { Prompt, Tool } from "@modelcontextprotocol/sdk/types.js";
-
-/** The minimal shape of a `tools/list` result page: a `Tool[]` plus an optional cursor for the
- * next page. `ListToolsResult` from the SDK, and mcp-tada's own `RawToolListResult`, both
- * structurally satisfy this. */
-export interface ListToolsResultLike {
-  tools: Tool[];
-  nextCursor?: string | undefined;
-}
+//
+// Since SDK v2, `listTools()` and `listPrompts()` called without a cursor already return every
+// page in one result with no `nextCursor`, so against a v2 client the loop below runs exactly
+// once; against v1 it pages as before.
+import type { ListPromptsResultLike, ListToolsResultLike, Prompt, Tool } from "./wire.js";
 
 /** A `tools/list` call: given an optional cursor, returns the next page. Matches the shape of
  * `Client["listTools"]` (called with just the cursor param) closely enough to pass it directly. */
@@ -36,13 +32,6 @@ export async function listAllTools<R extends ListToolsResultLike>(
     cursor = result.nextCursor;
   } while (cursor);
   return tools;
-}
-
-/** The minimal shape of a `prompts/list` result page, the `prompts/list` twin of
- * `ListToolsResultLike`. */
-export interface ListPromptsResultLike {
-  prompts: Prompt[];
-  nextCursor?: string | undefined;
 }
 
 export type ListPromptsFn<R extends ListPromptsResultLike = ListPromptsResultLike> = (params?: {

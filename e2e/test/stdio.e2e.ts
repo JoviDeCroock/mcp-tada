@@ -3,7 +3,8 @@
 import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { Client } from "@modelcontextprotocol/client";
+import type { Client as ClientV1 } from "@modelcontextprotocol/sdk/client/index.js";
 import { initMcpTada, readOnly } from "mcp-tada";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { introspection as Filesystem } from "../snapshots/filesystem.introspection.js";
@@ -98,5 +99,42 @@ describe("@modelcontextprotocol/server-memory", () => {
     const memory = initMcpTada<Memory>().typed(client);
     const names = (await readOnly(memory).listTools()).map((t) => t.name).sort();
     expect(names).toEqual(["open_nodes", "read_graph", "search_nodes"]);
+  });
+});
+
+// The same server through the v1 SDK's `Client`: the typed client accepts either SDK, and the
+// options it forwards land in v1's third `callTool` argument rather than v2's second.
+describe("@modelcontextprotocol/server-memory through the v1 SDK", () => {
+  const dir = mkdtempSync(join(tmpdir(), "mcp-tada-e2e-memory-v1-"));
+  const snapshot = committedSnapshot("memory");
+  let client: ClientV1;
+
+  beforeAll(async () => {
+    client = await connectStdio(
+      MEMORY_SERVER,
+      [],
+      { MEMORY_FILE_PATH: join(dir, "memory.jsonl") },
+      "v1",
+    );
+  });
+  afterAll(async () => {
+    await client.close();
+  });
+
+  it("round-trips an entity and honours a per-call abort signal", async () => {
+    const memory = initMcpTada<Memory>().typed(client);
+    const created = await memory.tools.create_entities({
+      entities: [{ name: "mcp-tada", entityType: "library", observations: ["typed MCP client"] }],
+    });
+    if (created.isError) throw new Error("create_entities failed");
+    expectStructuredContentToMatch(snapshot, "create_entities", created.structuredContent);
+
+    const graph = await memory.tools.read_graph(undefined, { timeout: 30_000 });
+    if (graph.isError) throw new Error("read_graph failed");
+    expect(graph.structuredContent.entities.map((e) => e.name)).toEqual(["mcp-tada"]);
+
+    await expect(
+      memory.tools.read_graph(undefined, { signal: AbortSignal.abort(new Error("aborted")) }),
+    ).rejects.toThrow();
   });
 });

@@ -1,7 +1,7 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Client } from "@modelcontextprotocol/client";
+// Both halves of a linked pair must come from the same package's `InMemoryTransport` (the client
+// and server packages bundle separate copies); the client-side `Client` connects to it fine.
+import { InMemoryTransport, McpServer, Server } from "@modelcontextprotocol/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineTools } from "../src/define.js";
 import { registerTools } from "../src/register.js";

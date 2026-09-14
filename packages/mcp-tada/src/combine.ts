@@ -1,15 +1,15 @@
-import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import type { GetPromptResult, Prompt, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { Introspection, ToolEntry, ToolNames, TypedClient } from "./index.js";
 import type { PromptEntry, PromptNames } from "./prompts.js";
+import type { GetPromptResult, Prompt, RequestOptions, Tool } from "./wire.js";
 
-/** Any client produced by `initMcpTada<I>().typed(client)`, with its introspection erased. */
-export type AnyTypedClient = TypedClient<any>;
+/** Any client produced by `initMcpTada<I>().typed(client)`, with its introspection and its
+ * underlying SDK client type erased. */
+export type AnyTypedClient = TypedClient<any, any>;
 
-// Recovers the `Introspection` a `TypedClient` was built from. `TypedClient<I>` and
-// `TypedClient<infer I>` are instantiations of the same alias, so this matches by comparing
+// Recovers the `Introspection` a `TypedClient` was built from. `TypedClient<I, C>` and
+// `TypedClient<infer I, any>` are instantiations of the same alias, so this matches by comparing
 // type arguments rather than expanding and structurally unifying the whole shape.
-type IntrospectionOf<T> = T extends TypedClient<infer I> ? I : never;
+type IntrospectionOf<T> = T extends TypedClient<infer I, any> ? I : never;
 
 type UnionToIntersection<U> = (U extends unknown ? (k: U) => void : never) extends (
   k: infer R,

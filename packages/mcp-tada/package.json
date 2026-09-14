@@ -40,16 +40,25 @@
     "prepublishOnly": "pnpm build"
   },
   "peerDependencies": {
+    "@modelcontextprotocol/client": ">=2.0.0",
     "@modelcontextprotocol/sdk": ">=1.20.0",
     "typescript": ">=5.4.0"
   },
   "peerDependenciesMeta": {
+    "@modelcontextprotocol/client": {
+      "optional": true
+    },
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
     "typescript": {
       "optional": true
     }
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@modelcontextprotocol/server-everything": "^2026.8.31",
     "@types/node": "^26.5.0",
     "typescript": "^7.0.2",

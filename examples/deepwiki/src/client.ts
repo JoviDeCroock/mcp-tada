@@ -1,8 +1,7 @@
 // Client-only use against a public server you do not control. DeepWiki declares an outputSchema
 // on every tool, so structuredContent is fully typed. The snapshot next to this file was written
 // by `pnpm introspect`; `pnpm check` fails when DeepWiki changes a schema.
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { initMcpTada } from "mcp-tada";
 import type { introspection } from "./deepwiki.introspection.js";
 
