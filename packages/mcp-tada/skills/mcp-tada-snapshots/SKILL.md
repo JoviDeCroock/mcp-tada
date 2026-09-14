@@ -30,7 +30,8 @@ two must agree.
 
 `mcp-tada check` groups differences by severity, worst first, with reasons underneath.
 
-- **breaking**. Code written against the snapshot can stop working: a removed tool or prompt, a
+- **breaking**. Code written against the snapshot can stop working: a removed tool, prompt,
+  resource or template, a changed `uriTemplate` or recorded `mimeType`, a
   newly required argument, a tightened `inputSchema`, a loosened or vanished `outputSchema`.
   Direction matters: the caller writes the input schema and reads the output schema, so the same
   edit is breaking on one side and additive on the other.
@@ -56,5 +57,6 @@ It still changes the snapshot file and still needs committing.
   every affected call site, then fix those. Do not adapt code to a stale snapshot.
 - **Breaking drift on a server you author.** Decide whether the server change was intended; if
   not, fix the server and re-run `check`.
+- **A snapshot without a `resources` key** behaves the same for resources and templates.
 - **A snapshot without a `prompts` key** against a server that offers prompts shows every prompt
   as added. Regenerate.

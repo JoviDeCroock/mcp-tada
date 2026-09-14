@@ -65,6 +65,35 @@ export type BlobResourceContents = {
   _meta?: Record<string, unknown> | undefined;
 };
 
+/** One `resources/list` entry. */
+export type Resource = {
+  uri: string;
+  name: string;
+  title?: string | undefined;
+  description?: string | undefined;
+  mimeType?: string | undefined;
+  size?: number | undefined;
+  annotations?: ContentAnnotations | undefined;
+  _meta?: Record<string, unknown> | undefined;
+};
+
+/** One `resources/templates/list` entry. */
+export type ResourceTemplate = {
+  uriTemplate: string;
+  name: string;
+  title?: string | undefined;
+  description?: string | undefined;
+  mimeType?: string | undefined;
+  annotations?: ContentAnnotations | undefined;
+  _meta?: Record<string, unknown> | undefined;
+};
+
+/** What `resources/read` returns. */
+export type ReadResourceResult = {
+  contents: (TextResourceContents | BlobResourceContents)[];
+  _meta?: Record<string, unknown> | undefined;
+};
+
 export type EmbeddedResource = {
   type: "resource";
   resource: TextResourceContents | BlobResourceContents;
@@ -175,8 +204,20 @@ export interface ListPromptsResultLike {
   nextCursor?: string | undefined;
 }
 
+/** The minimal shape of a `resources/list` result page. */
+export interface ListResourcesResultLike {
+  resources: Resource[];
+  nextCursor?: string | undefined;
+}
+
+/** The minimal shape of a `resources/templates/list` result page. */
+export interface ListResourceTemplatesResultLike {
+  resourceTemplates: ResourceTemplate[];
+  nextCursor?: string | undefined;
+}
+
 /**
- * What mcp-tada needs from an SDK client: the five methods it forwards to. A v1 and a v2 `Client`
+ * What mcp-tada needs from an SDK client: the eight methods it forwards to. A v1 and a v2 `Client`
  * both satisfy it, so `initMcpTada<I>().typed(client)` accepts either without the library
  * depending on one. The methods are declared as methods (not function-typed properties) so their
  * parameters compare bivariantly, which is what lets both SDKs' richer parameter types match.
@@ -202,10 +243,22 @@ export interface ClientLike {
     params?: { cursor?: string | undefined },
     options?: RequestOptions,
   ): Promise<ListPromptsResultLike>;
+  readResource(params: { uri: string }, options?: RequestOptions): Promise<ReadResourceResult>;
+  listResources(
+    params?: { cursor?: string | undefined },
+    options?: RequestOptions,
+  ): Promise<ListResourcesResultLike>;
+  listResourceTemplates(
+    params?: { cursor?: string | undefined },
+    options?: RequestOptions,
+  ): Promise<ListResourceTemplatesResultLike>;
   getServerCapabilities():
     | {
         tools?: { listChanged?: boolean | undefined } | undefined;
         prompts?: { listChanged?: boolean | undefined } | undefined;
+        resources?:
+          | { listChanged?: boolean | undefined; subscribe?: boolean | undefined }
+          | undefined;
       }
     | undefined;
 }

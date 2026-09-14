@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { initMcpTada, readOnly } from "../src/index.js";
+import { expandUriTemplate, initMcpTada, readOnly } from "../src/index.js";
 import type { introspection } from "./fixtures/everything.introspection.d.ts";
 import { connectEverything, sdks, serverAvailable, type SdkClient } from "./helpers.js";
 
@@ -52,6 +52,43 @@ describe.runIf(serverAvailable).each(sdks)("typed client (runtime, $label)", ({ 
     expect(JSON.stringify(result.messages)).toContain("Chicago");
     const prompts = await mcp.listPrompts();
     expect(prompts.map((p) => p.name)).toContain("args-prompt");
+  });
+
+  it("reads a static resource and lists resources and templates", async () => {
+    const mcp = initMcpTada<introspection>().typed(client);
+    const result = await mcp.readResource("demo://resource/static/document/architecture.md");
+    expect(result.contents[0]?.mimeType).toBe("text/markdown");
+    expect("text" in result.contents[0]! && result.contents[0].text).toContain("Architecture");
+
+    const resources = await mcp.listResources();
+    expect(resources.map((r) => r.uri)).toContain(
+      "demo://resource/static/document/architecture.md",
+    );
+    const templates = await mcp.listResourceTemplates();
+    expect(templates.map((t) => t.name)).toContain("Dynamic Text Resource");
+  });
+
+  it("expands a resource template with typed params and reads it", async () => {
+    const mcp = initMcpTada<introspection>().typed(client);
+    const result = await mcp.readResourceTemplate("Dynamic Text Resource", { resourceId: "1" });
+    expect(result.contents[0]?.uri).toBe("demo://resource/dynamic/text/1");
+    expect(result.contents[0]?.mimeType).toBe("text/plain");
+
+    // The template list is fetched once and cached per typed client.
+    const blob = await mcp.readResourceTemplate("Dynamic Blob Resource", { resourceId: "2" });
+    expect(blob.contents[0]?.uri).toBe("demo://resource/dynamic/blob/2");
+    expect("blob" in blob.contents[0]!).toBe(true);
+  });
+
+  it("names the template when the server does not list it", async () => {
+    type Stale = {
+      tools: {};
+      resourceTemplates: { Gone: { uriTemplate: "gone://{id}" } };
+    };
+    const mcp = initMcpTada<Stale>().typed(client);
+    await expect(mcp.readResourceTemplate("Gone", { id: "1" })).rejects.toThrow(
+      /no resource template named "Gone"/,
+    );
   });
 
   it("calls get-structured-content and gets typed structuredContent back", async () => {
@@ -244,3 +281,21 @@ if (!serverAvailable) {
     it.skip("server-everything binary not found, skipping runtime tests", () => {});
   });
 }
+
+describe("expandUriTemplate", () => {
+  it("expands simple, reserved, path, and query expressions like the SDK", () => {
+    expect(expandUriTemplate("file:///{path}", { path: "a/b" })).toBe("file:///a%2Fb");
+    expect(expandUriTemplate("{+base}/x", { base: "http://h/p" })).toBe("http://h/p/x");
+    expect(expandUriTemplate("repo://{owner}/{name}{?ref}", { owner: "o", name: "n" })).toBe(
+      "repo://o/n",
+    );
+    expect(
+      expandUriTemplate("repo://{owner}/{name}{?ref}", { owner: "o", name: "n", ref: "main" }),
+    ).toBe("repo://o/n?ref=main");
+    expect(expandUriTemplate("{/segments*}", { segments: ["a", "b"] })).toBe("/a/b");
+  });
+
+  it("needs no params for a template without variables", () => {
+    expect(expandUriTemplate("static://thing")).toBe("static://thing");
+  });
+});

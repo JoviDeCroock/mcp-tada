@@ -31,10 +31,27 @@ export interface PromptSnapshot {
   arguments: PromptArgumentSnapshot[];
 }
 
+/** One static resource, keyed by its URI in the snapshot. Its description goes into the JSDoc
+ * block; `name` and `mimeType` are recorded because a caller can observe them. */
+export interface ResourceSnapshot {
+  name: string;
+  mimeType?: string;
+}
+
+/** One resource template, keyed by its name in the snapshot. */
+export interface ResourceTemplateSnapshot {
+  uriTemplate: string;
+  mimeType?: string;
+}
+
 export interface IntrospectionData {
   tools: Record<string, ToolSnapshot>;
   /** Present only when the server declares the `prompts` capability (possibly empty). */
   prompts?: Record<string, PromptSnapshot>;
+  /** Present only when the server declares the `resources` capability (possibly empty). */
+  resources?: Record<string, ResourceSnapshot>;
+  /** Present only when the server declares the `resources` capability (possibly empty). */
+  resourceTemplates?: Record<string, ResourceTemplateSnapshot>;
 }
 
 export type SnapshotFormat = "dts" | "json";
@@ -131,8 +148,10 @@ function assertIntrospectionData(data: unknown): asserts data is IntrospectionDa
   ) {
     throw new Error('Parsed snapshot is missing a top-level "tools" object');
   }
-  const prompts = (data as { prompts?: unknown }).prompts;
-  if (prompts !== undefined && (typeof prompts !== "object" || prompts === null)) {
-    throw new Error('Parsed snapshot has a top-level "prompts" that is not an object');
+  for (const key of ["prompts", "resources", "resourceTemplates"] as const) {
+    const value = (data as Record<string, unknown>)[key];
+    if (value !== undefined && (typeof value !== "object" || value === null)) {
+      throw new Error(`Parsed snapshot has a top-level "${key}" that is not an object`);
+    }
   }
 }
