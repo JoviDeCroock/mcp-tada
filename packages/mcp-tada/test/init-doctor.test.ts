@@ -138,8 +138,55 @@ describe("doctor", () => {
     expect(versionAtLeast("1.30.0", "1.20.0")).toBe(true);
     expect(versionAtLeast("1.9.9", "1.20.0")).toBe(false);
     expect(versionAtLeast("7.0.2-beta", "5.4.0")).toBe(true);
-    expect(installedVersion("@modelcontextprotocol/sdk", process.cwd())).toMatch(/^\d+\.\d+\.\d+/);
+    expect(installedVersion("@modelcontextprotocol/client", process.cwd())).toMatch(
+      /^\d+\.\d+\.\d+/,
+    );
     expect(installedVersion("no-such-package", process.cwd())).toBeUndefined();
+  });
+
+  function fakeInstall(cwd: string, name: string, version: string): void {
+    const dir = join(cwd, "node_modules", name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name, version }));
+  }
+
+  it("names both SDK packages when neither is installed", async () => {
+    const cwd = tmpDir();
+    const result = await doctor({ cwd, connect: false });
+    const sdk = result.checks.find((c) => c.subject === "@modelcontextprotocol/client");
+    expect(sdk?.status).toBe("fail");
+    expect(sdk?.detail).toContain("@modelcontextprotocol/client");
+    expect(sdk?.detail).toContain("@modelcontextprotocol/sdk");
+  });
+
+  it("accepts the v1 SDK when it is the only one installed", async () => {
+    const cwd = tmpDir();
+    fakeInstall(cwd, "@modelcontextprotocol/sdk", "1.30.0");
+    const result = await doctor({ cwd, connect: false });
+    const v1 = result.checks.find((c) => c.subject === "@modelcontextprotocol/sdk");
+    expect(v1?.status).toBe("ok");
+    expect(v1?.detail).toContain("SDK v1");
+    expect(result.checks.find((c) => c.subject === "@modelcontextprotocol/client")).toBeUndefined();
+  });
+
+  it("warns on a v1 SDK older than the floor", async () => {
+    const cwd = tmpDir();
+    fakeInstall(cwd, "@modelcontextprotocol/sdk", "1.10.0");
+    const result = await doctor({ cwd, connect: false });
+    expect(result.checks.find((c) => c.subject === "@modelcontextprotocol/sdk")?.status).toBe(
+      "warn",
+    );
+  });
+
+  it("prefers v2 and mentions v1 when both are installed", async () => {
+    const cwd = tmpDir();
+    fakeInstall(cwd, "@modelcontextprotocol/client", "2.0.0");
+    fakeInstall(cwd, "@modelcontextprotocol/sdk", "1.30.0");
+    const result = await doctor({ cwd, connect: false });
+    const v2 = result.checks.find((c) => c.subject === "@modelcontextprotocol/client");
+    expect(v2?.status).toBe("ok");
+    expect(v2?.detail).toContain("@modelcontextprotocol/sdk 1.30.0");
+    expect(result.checks.find((c) => c.subject === "@modelcontextprotocol/sdk")).toBeUndefined();
   });
 
   it("reports a missing config as a failure", async () => {
@@ -147,7 +194,7 @@ describe("doctor", () => {
     const result = await doctor({ cwd, connect: false });
     expect(result.ok).toBe(false);
     const byStatus = Object.fromEntries(result.checks.map((c) => [c.subject, c.status]));
-    expect(byStatus["@modelcontextprotocol/sdk"]).toBe("fail");
+    expect(byStatus["@modelcontextprotocol/client"]).toBe("fail");
     expect(byStatus["typescript"]).toBe("warn");
     expect(byStatus["mcp-tada.config.json"]).toBe("fail");
     expect(result.text).toContain("mcp-tada init");
@@ -185,7 +232,7 @@ describe("doctor", () => {
       expect(found).toHaveLength(1);
       return found[0];
     };
-    expect(one("@modelcontextprotocol/sdk")?.status).toBe("ok");
+    expect(one("@modelcontextprotocol/client")?.status).toBe("ok");
     expect(one("typescript")?.status).toBe("ok");
     expect(bySubject("mcp-tada.config.json")).toEqual([]);
     expect(one(configPath)?.detail).toBe("4 servers");

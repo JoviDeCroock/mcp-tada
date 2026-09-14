@@ -1,12 +1,3 @@
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import type {
-  CallToolResult,
-  GetPromptResult,
-  Prompt,
-  Tool,
-  ToolAnnotations,
-} from "@modelcontextprotocol/sdk/types.js";
 import { listAllPrompts, listAllTools } from "./list.js";
 import type {
   HasNoRequiredPromptArgs,
@@ -16,8 +7,30 @@ import type {
   PromptNames,
 } from "./prompts.js";
 import type { FromOutputSchema, FromSchema } from "./schema.js";
+import type {
+  ClientLike,
+  ContentBlock,
+  GetPromptResult,
+  Prompt,
+  RequestOptions,
+  Tool,
+  ToolAnnotations,
+} from "./wire.js";
 
 export type { FromOutputSchema, FromSchema } from "./schema.js";
+// The wire types a caller sees on the typed client's surface. The finer-grained ones (each
+// content block kind, a tool's schema shapes) are reachable from these by narrowing or indexing.
+export type {
+  ClientLike,
+  ContentBlock,
+  GetPromptResult,
+  ListPromptsResultLike,
+  ListToolsResultLike,
+  Prompt,
+  RequestOptions,
+  Tool,
+  ToolAnnotations,
+} from "./wire.js";
 export { combineMcpTada } from "./combine.js";
 export type { AnyTypedClient, CombinedClient, CombinedIntrospection } from "./combine.js";
 export { readOnly } from "./annotations.js";
@@ -29,12 +42,7 @@ export type {
   ToolAnnotationsOf,
 } from "./annotations.js";
 export { listAllPrompts, listAllTools } from "./list.js";
-export type {
-  ListPromptsFn,
-  ListPromptsResultLike,
-  ListToolsFn,
-  ListToolsResultLike,
-} from "./list.js";
+export type { ListPromptsFn, ListToolsFn } from "./list.js";
 export type {
   PromptArgs,
   PromptArgsFrom,
@@ -96,12 +104,11 @@ export type ToolOutput<I extends Introspection, N extends ToolNames<I>> = Struct
  *
  * `content`, `_meta` and the rest of `CallToolResult` stay as typed by the SDK in both branches.
  */
-// Spelled out rather than `Omit<CallToolResult, ...>`: the SDK result type carries a string index
-// signature (passthrough), and `Omit` over such a type keeps only the index signature, turning
-// `content` into `unknown`.
+// The index signature keeps whatever else a server (or a newer SDK) puts on the result readable
+// as `unknown`, the way the SDK's own passthrough result types do.
 type ResultBase = {
-  content: CallToolResult["content"];
-  _meta?: CallToolResult["_meta"];
+  content: ContentBlock[];
+  _meta?: Record<string, unknown>;
   [key: string]: unknown;
 };
 
@@ -143,7 +150,10 @@ type GetPromptArgs<N extends PromptNames<I>, I extends Introspection> =
     ? [args?: PromptArgs<I, N>, options?: RequestOptions]
     : [args: PromptArgs<I, N>, options?: RequestOptions];
 
-export type TypedClient<I extends Introspection> = {
+/** The typed wrapper `initMcpTada<I>().typed(client)` returns. `C` is the concrete client that
+ * was passed in (a v1 or v2 SDK `Client`, or anything else satisfying `ClientLike`), kept so
+ * `mcp.client` still exposes that client's full API. */
+export type TypedClient<I extends Introspection, C extends ClientLike = ClientLike> = {
   callTool<N extends ToolNames<I>>(
     name: N,
     ...rest: CallToolArgs<I["tools"][N]["inputSchema"]>
@@ -165,8 +175,18 @@ export type TypedClient<I extends Introspection> = {
   /** Every tool from every server page, following `nextCursor` until exhausted. For the raw,
    * single-page SDK call, use `client.listTools(...)` directly. */
   listTools(): Promise<Tool[]>;
-  client: Client;
+  client: C;
 };
+
+/**
+ * True when `client` is a v2 SDK `Client`, whose `callTool` is `(params, options?)`. v1's is
+ * `(params, resultSchema?, options?)`: handing v1 the options in the second slot makes it read
+ * them as a result schema and throw, and handing v2 the options in the third slot silently
+ * drops them. Only v2's `Client` has `getProtocolEra`, so its presence is the discriminator.
+ */
+function hasTwoArgumentCallTool(client: ClientLike): boolean {
+  return typeof (client as { getProtocolEra?: unknown }).getProtocolEra === "function";
+}
 
 // Property names a catch-all proxy must not answer: `then` would make `tools` thenable (so
 // `await` and `Promise.resolve` would hang on it), and the rest are probed by runtimes and
@@ -198,14 +218,17 @@ function toolMethods<T>(
 /**
  * Initializes a typed wrapper for a given introspection snapshot. The generic
  * `Introspection` describes the server's tools at the type level only; nothing about it
- * is used at runtime. Call `.typed(client)` with a live SDK `Client` to get back a
+ * is used at runtime. Call `.typed(client)` with a live SDK `Client`, from either
+ * `@modelcontextprotocol/sdk` (v1) or `@modelcontextprotocol/client` (v2), to get back a
  * `callTool` that narrows tool names, infers `args` from `inputSchema`, and types
  * `structuredContent` from `outputSchema`, plus a `tools` namespace exposing the same calls
  * as methods.
  */
 export function initMcpTada<I extends Introspection>() {
   return {
-    typed(client: Client): TypedClient<I> {
+    typed<C extends ClientLike>(client: C): TypedClient<I, C> {
+      // Decided once per wrapper, not per call: see `hasTwoArgumentCallTool`.
+      const twoArgumentCallTool = hasTwoArgumentCallTool(client);
       async function callTool<N extends ToolNames<I>>(
         name: N,
         ...rest: CallToolArgs<I["tools"][N]["inputSchema"]>
@@ -213,11 +236,11 @@ export function initMcpTada<I extends Introspection>() {
         const [args, options] = rest;
         // An omitted `args` goes on the wire as `{}`: the SDK's `McpServer` validates
         // `arguments` against the tool's schema and rejects a missing object outright.
-        const result = await client.callTool(
-          { name, arguments: (args ?? {}) as Record<string, unknown> },
-          undefined,
-          options,
-        );
+        const params = { name, arguments: (args ?? {}) as Record<string, unknown> };
+        // v2: `callTool(params, options?)`; v1: `callTool(params, resultSchema?, options?)`.
+        const result = twoArgumentCallTool
+          ? await client.callTool(params, options)
+          : await client.callTool(params, undefined, options);
         return result as unknown as ToolResult<I, N>;
       }
       async function getPrompt<N extends PromptNames<I>>(

@@ -4,6 +4,9 @@
 // one stays free of `node:fs` and transport imports.
 export {
   DEFAULT_TIMEOUT_MS,
+  DEFAULT_PROTOCOL_MODE,
+  versionNegotiationFor,
+  type ProtocolMode,
   connectClient,
   describeTarget,
   loadConfig,
@@ -13,6 +16,19 @@ export {
   type ServerConfigEntry,
   type ServerTarget,
 } from "./connect.js";
+export {
+  detectSdk,
+  loadSdk,
+  SDK_ENV,
+  SDK_PREFERENCE,
+  SDKS,
+  type CliClient,
+  type CliTransport,
+  type LoadedSdk,
+  type SdkChoice,
+  type SdkInfo,
+  type StdioTransportOptions,
+} from "./sdk.js";
 export {
   buildIntrospectionData,
   collectWarnings,

@@ -1,12 +1,28 @@
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { Client } from "@modelcontextprotocol/client";
+import type { Client as ClientV1 } from "@modelcontextprotocol/sdk/client/index.js";
 import { describe, expectTypeOf, test } from "vitest";
 import { initMcpTada } from "../src/index.js";
-import type { ToolResult } from "../src/index.js";
+import type { ContentBlock, ToolResult } from "../src/index.js";
 import type { introspection } from "./fixtures/everything.introspection.d.ts";
 
 declare const client: Client;
+declare const v1: ClientV1;
 const mcp = initMcpTada<introspection>().typed(client);
+
+describe("typed() accepts either SDK's Client and keeps its concrete type", () => {
+  test("v2 client", () => {
+    expectTypeOf(mcp.client).toEqualTypeOf<Client>();
+  });
+  test("v1 client", async () => {
+    const legacy = initMcpTada<introspection>().typed(v1);
+    expectTypeOf(legacy.client).toEqualTypeOf<ClientV1>();
+    const r = await legacy.callTool("get-structured-content", { location: "Chicago" });
+    if (r.isError) throw new Error("unexpected error");
+    expectTypeOf(r.structuredContent.temperature).toEqualTypeOf<number>();
+    // @ts-expect-error wrong type for message
+    await legacy.tools.echo({ message: 42 });
+  });
+});
 
 describe("typed client", () => {
   test("good calls", async () => {
@@ -89,9 +105,9 @@ describe("tools namespace", () => {
 });
 
 describe("result content stays typed", () => {
-  test("content is the SDK content block array on both branches", async () => {
+  test("content is the content block array on both branches", async () => {
     const r = await mcp.callTool("get-sum", { a: 1, b: 2 });
-    expectTypeOf(r.content).toEqualTypeOf<CallToolResult["content"]>();
-    if (r.isError) expectTypeOf(r.content).toEqualTypeOf<CallToolResult["content"]>();
+    expectTypeOf(r.content).toEqualTypeOf<ContentBlock[]>();
+    if (r.isError) expectTypeOf(r.content).toEqualTypeOf<ContentBlock[]>();
   });
 });

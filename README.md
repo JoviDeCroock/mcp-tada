@@ -16,16 +16,16 @@ Point it at a running MCP server once, and every `callTool` in your codebase get
 ## Quick start
 
 ```sh
-pnpm add mcp-tada @modelcontextprotocol/sdk
+pnpm add mcp-tada @modelcontextprotocol/client
 pnpm mcp-tada introspect --stdio "npx -y @modelcontextprotocol/server-filesystem ." --out src/fs.introspection.d.ts
 ```
 
-Requires Node 22.18 or newer. TypeScript 5.4 or newer is supported and the test suite runs on both TypeScript 5 and 7.
+Requires Node 22.18 or newer. TypeScript 5.4 or newer is supported and the test suite runs on both TypeScript 5 and 7. Both MCP SDKs work: the typed client accepts a `Client` from v2 (`@modelcontextprotocol/client`) or v1 (`@modelcontextprotocol/sdk`), and the CLI uses whichever one is installed, see [SDK versions](#sdk-versions).
 
 ```ts
 import { initMcpTada } from "mcp-tada";
 import type { introspection } from "./fs.introspection.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { Client } from "@modelcontextprotocol/client";
 
 const client = new Client({ name: "my-agent", version: "1.0.0" });
 await client.connect(transport);
@@ -62,7 +62,7 @@ The same two pieces power "code mode" agents: the snapshot is a TypeScript decla
 ## How it works
 
 1. `mcp-tada introspect` connects to the server, pages through `tools/list` (and `prompts/list` when the server offers prompts), and writes a `.d.ts` containing the tool and prompt maps as a strict JSON type literal, with each entry's title and description as a JSDoc block, and each tool's `annotations` when the server declares them. Nothing else is generated.
-2. `initMcpTada<introspection>()` returns a thin wrapper around the SDK `Client`. At runtime it forwards to `client.callTool`. Everything else is type-level.
+2. `initMcpTada<introspection>()` returns a thin wrapper around the SDK `Client`, from either SDK v1 or v2. At runtime it forwards to `client.callTool`. Everything else is type-level.
 3. A small purpose-built JSON Schema to TypeScript mapper turns each schema into a type on demand. It accepts draft-07 and 2020-12 vocabularies: objects with `required` and `additionalProperties`, arrays and `prefixItems` tuples, `enum`, `const`, `anyOf`, `oneOf`, `allOf`, `type` arrays, `nullable`, `patternProperties`, `if`/`then`/`else`, and `$ref` into `$defs` or `definitions`.
 
 Off-the-shelf type-level mappers were measured at over 12 million type instantiations on real server schemas. This one checks the same snapshot in about 25 thousand, so editor feedback stays instant.
@@ -81,7 +81,7 @@ mcp-tada init --from ~/Library/Application\ Support/Claude/claude_desktop_config
 
 ### `mcp-tada doctor`
 
-Runs the setup checks people otherwise discover one failed command at a time: the installed `@modelcontextprotocol/sdk` and `typescript` versions, that the config loads and no two servers share an `output`, that each snapshot exists and parses back, and, unless `--offline`, that each server answers and still matches its snapshot. Exits 1 on any failure. Warnings alone exit 0.
+Runs the setup checks people otherwise discover one failed command at a time: the installed MCP SDK (`@modelcontextprotocol/client`, or `@modelcontextprotocol/sdk` when only v1 is present) and `typescript` versions, that the config loads and no two servers share an `output`, that each snapshot exists and parses back, and, unless `--offline`, that each server answers and still matches its snapshot. Exits 1 on any failure. Warnings alone exit 0.
 
 ```sh
 mcp-tada doctor
@@ -158,6 +158,23 @@ A Claude Desktop or Cursor style file with an `mcpServers` block is accepted too
 
 Full reference in `docs/cli.md`.
 
+## SDK versions
+
+The MCP TypeScript SDK comes in two package families: v1 is the single `@modelcontextprotocol/sdk`, v2 is `@modelcontextprotocol/client`, `@modelcontextprotocol/server` and `@modelcontextprotocol/core`. mcp-tada draws the line at whatever constructs a client:
+
+- `initMcpTada<I>().typed(client)` accepts a `Client` from either SDK. The library imports nothing from either package: it types `client` as a small structural `ClientLike` (the five methods it forwards to) and ships its own copies of the wire types (`Tool`, `Prompt`, `ContentBlock`, `GetPromptResult`, `RequestOptions`), which both SDKs' types satisfy. The one runtime difference, v1's `callTool(params, resultSchema?, options?)` versus v2's `callTool(params, options?)`, is detected per client (only a v2 `Client` has `getProtocolEra`), so per-call `options` land in the right argument on both. `mcp.client` keeps the concrete type you passed in. One footgun to know when you spawn a stdio server yourself: both SDKs' `StdioClientTransport` hand the child a short allowlist of environment variables (`HOME`, `PATH`, and a few more) unless you pass `env`, so behind a proxy an `npx`-launched server can hang on its install with no error; the CLI passes the whole environment, and `env: { ...process.env }` does the same in your own code.
+- The CLI (`introspect`, `check`, `doctor`) and the `mcp-tada/cli` entry construct their own client, so they need one SDK installed, and use whichever one is: v2 when both are present, v1 otherwise. Both packages are optional peer dependencies; the SDK is loaded lazily, so `--help` and `init` run with none, and `doctor` names both packages when neither is installed. `MCP_TADA_SDK=v1` or `v2` forces the choice, and any other value is an error rather than a silent fallback. One difference to know: v1's `Client` does not expose the negotiated protocol version on stdio, so a snapshot written through v1 has no `protocolVersion` header line for a stdio server (the tool and prompt data are identical, and `check` treats the two as equal).
+- `mcp-tada-server` is v2 only and peer-depends on `@modelcontextprotocol/server`.
+
+The CLI uses the legacy 2025-era handshake by default to avoid probing on every invocation. With SDK v2, pass `--protocol auto` to negotiate 2026-07-28 when offered, or `--protocol 2026-07-28` to require that revision. `introspect`, `check`, and `doctor` accept the flag; a server's `"protocol"` config field sets its default, and the flag overrides it. SDK v1 supports `legacy` only and reports an error for other modes. Modern snapshots record the negotiated revision and any `ttlMs` / `cacheScope` hints in their header; the tool and prompt data format stays the same.
+
+```sh
+mcp-tada introspect --protocol auto
+mcp-tada check --protocol 2026-07-28
+```
+
+For a client you construct yourself, opt in with `new Client(info, { versionNegotiation: { mode: "auto" } })`. A server can serve both protocol eras with `serveStdio(factory)` from `@modelcontextprotocol/server/stdio`, or `createMcpHandler(factory)` from `@modelcontextprotocol/server`; see `examples/notes` for stdio.
+
 ## API
 
 - `initMcpTada<I>()` returns `{ typed(client) }`. The typed client exposes `callTool(name, args?, options?)`, `tools`, `listTools()`, `getPrompt(name, args?, options?)`, `listPrompts()`, and the underlying `client`.
@@ -165,7 +182,7 @@ Full reference in `docs/cli.md`.
 - `callTool`'s result is a union on `isError`: when `isError` is `false` or absent, `structuredContent` is typed from the tool's `outputSchema` (or `unknown` if it has none - the spec allows a server to send one anyway); when `isError` is `true`, `structuredContent` is optional/`unknown` and `content` is still present. Narrow on `result.isError` before reading `structuredContent`.
 - `listTools()` on both the typed client and the combined client pages through `nextCursor` and returns every tool, not just the first page. The raw single-page SDK call is still reachable as `client.listTools(...)` on the typed client's underlying `client`.
 - `ToolNames<I>`, `ToolArgs<I, N>`, `ToolOutput<I, N>`, `ToolResult<I, N>` for naming the derived types in your own signatures. `ToolOutput<I, N>` is the success-case `structuredContent` type.
-- `getPrompt(name, args?, options?)` is `prompts/get` with `name` narrowed to the snapshot's prompts and `args` typed from the prompt's argument list: required arguments as `string`, optional ones as `string | undefined`, closed to the declared names, and omissible when nothing is required. The result is the SDK's `GetPromptResult`. `PromptNames<I>` and `PromptArgs<I, N>` name those types. A snapshot of a server without the `prompts` capability has no `prompts` key, so `getPrompt` has no valid name on it, and `listPrompts()` returns `[]` without a request when the connected server does not declare the capability.
+- `getPrompt(name, args?, options?)` is `prompts/get` with `name` narrowed to the snapshot's prompts and `args` typed from the prompt's argument list: required arguments as `string`, optional ones as `string | undefined`, closed to the declared names, and omissible when nothing is required. The result is `GetPromptResult`, mcp-tada's structural copy of the SDK type. `PromptNames<I>` and `PromptArgs<I, N>` name those types. A snapshot of a server without the `prompts` capability has no `prompts` key, so `getPrompt` has no valid name on it, and `listPrompts()` returns `[]` without a request when the connected server does not declare the capability.
 - `FromSchema<S, Root = S>` maps an `inputSchema`-shaped JSON Schema to its TS type; objects are closed to their declared `properties` unless `additionalProperties` says otherwise. `FromOutputSchema<S, Root = S>` maps an `outputSchema` the same way, except objects with no `additionalProperties` stay open (`& { [k: string]: unknown }`), since a server's structured output may legitimately include fields it didn't declare.
 - `Introspection` describes the snapshot shape: `{ tools: Record<string, { inputSchema: unknown; outputSchema?: unknown; annotations?: ToolAnnotations }>; prompts?: Record<string, { arguments: { name: string; required?: boolean }[] }> }`. Snapshots generated before annotations or prompts were recorded still satisfy it.
 - `ReadOnlyToolNames<I>` is the union of tools annotated `readOnlyHint: true`, and `NonDestructiveToolNames<I>` adds those annotated `destructiveHint: false`. Unannotated tools count as writable and destructive, matching the spec's defaults. `ToolAnnotationsOf<I, N>` is one tool's recorded annotations, and `PickTools<I, Names>` narrows a snapshot to a set of tools, keeping its prompts, so it is still an `Introspection`.
@@ -241,7 +258,7 @@ Published separately as [`mcp-tada-server`](https://www.npmjs.com/package/mcp-ta
 Writing the server too? `mcp-tada-server` declares tools once with a typed handler, registers them so the exact JSON Schemas hit the wire, and hands you the same introspection type for a same-codebase client with no network round trip.
 
 ```sh
-pnpm add mcp-tada-server mcp-tada @modelcontextprotocol/sdk
+pnpm add mcp-tada-server mcp-tada @modelcontextprotocol/server
 ```
 
 ```ts
@@ -254,7 +271,7 @@ const mcp = initMcpTada<IntrospectionOf<typeof tools>>().typed(client);
 
 ## Examples
 
-- `examples/notes`: a server declared with `mcp-tada-server`, its snapshot generated by the CLI, and a typed client that spawns it over stdio. Shows `isError` narrowing and that the CLI snapshot and `IntrospectionOf<typeof tools>` agree.
+- `examples/notes`: a server declared with `mcp-tada-server`, its snapshot generated by the CLI, and a typed client that spawns it over stdio. Shows `isError` narrowing and that the CLI snapshot and `IntrospectionOf<typeof tools>` agree. `pnpm start:v1` runs the same client on the v1 SDK (`src/client-v1.ts`).
 - `examples/deepwiki`: client only, against the public DeepWiki server, where every tool has an `outputSchema`.
 - `examples/combined`: DeepWiki, Cloudflare docs, and Context7 behind one `combineMcpTada` client, with a prefixed tool list ready for an LLM.
 - `examples/code-mode`: an LLM given one `run_code` tool and the snapshot as its API declaration, writing programs that call `mcp.tools.*` in a sandbox instead of one function call per tool.

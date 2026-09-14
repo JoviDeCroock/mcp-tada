@@ -11,7 +11,7 @@ Two artifacts do the work: a committed `<alias>.introspection.d.ts` snapshot of 
 ## Setup
 
 ```sh
-npm install -D mcp-tada @modelcontextprotocol/sdk
+npm install -D mcp-tada @modelcontextprotocol/client
 npx mcp-tada init        # mcp-tada.config.json from .mcp.json / .cursor / .vscode / Claude Desktop
 npx mcp-tada introspect  # one snapshot per configured server
 npx mcp-tada doctor      # versions, config, snapshots, live servers
@@ -30,7 +30,7 @@ or a tool that stopped being read-only shows up next to the code that depends on
 import { initMcpTada } from "mcp-tada";
 import type { introspection } from "./fs.introspection.js";
 
-const fs = initMcpTada<introspection>().typed(client); // a connected SDK Client
+const fs = initMcpTada<introspection>().typed(client); // a connected SDK Client, v1 or v2
 
 const result = await fs.tools.read_file({ path: "README.md" });
 if (!result.isError) result.structuredContent; // typed from outputSchema, else unknown
@@ -107,6 +107,9 @@ from CI, with credentials in the runner's environment.
   `then` / `catch` / `finally` / `toJSON` / `constructor` / `prototype` never resolve as tools
   (use `callTool` for such a name). Use `listTools()` for runtime discovery.
 - `listTools()` pages through `nextCursor`; the single-page SDK call is `mcp.client.listTools()`.
+- `typed(client)` accepts a `Client` from SDK v1 (`@modelcontextprotocol/sdk`) or v2
+  (`@modelcontextprotocol/client`), and the CLI runs on whichever is installed (v2 first;
+  `MCP_TADA_SDK=v1|v2` forces one). Install at least one of them next to mcp-tada.
 - `getPrompt` has no valid name on a snapshot of a server without the `prompts` capability.
 - Script `introspect` / `check` from `mcp-tada/cli`, not `mcp-tada`. The main entry has no
   `node:fs` or transport imports on purpose.

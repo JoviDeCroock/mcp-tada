@@ -4,9 +4,12 @@ Action items agreed on 2026-09-10. Each entry says what to build and the conditi
 
 ## Snapshot freshness from `ttlMs` and `cacheScope`
 
-The 2026-07-28 spec revision adds `ttlMs` and `cacheScope` to `tools/list` results. `introspect` already reads both defensively and records them in the file header when present, but no surveyed server sends them yet because `@modelcontextprotocol/sdk` 1.30 negotiates protocol 2025-11-25.
+The CLI supports both SDK families and defaults to the legacy handshake. With SDK v2,
+`--protocol auto` or `--protocol 2026-07-28` opts into the new revision; `introspect` records the
+negotiated version and `ttlMs` / `cacheScope` when present. The notes example serves both eras
+and generates its snapshot through modern negotiation.
 
-When the SDK negotiates 2026-07-28:
+Remaining freshness work:
 
 - Persist `ttlMs`, `cacheScope`, and the introspection timestamp in the snapshot header and expose them in `parseDtsSnapshot`.
 - Make `check` warn when a snapshot is older than its `ttlMs`, and refuse with a clear message when `cacheScope` says the list is per-user and the snapshot is being treated as shared.
@@ -15,7 +18,11 @@ When the SDK negotiates 2026-07-28:
 
 ## Server-side package
 
-Shipped as `packages/mcp-tada-server`: `defineTool`/`defineTools` declare tools once from plain JSON Schema with a typed handler, `registerTools` installs them on an `McpServer` via the low-level `tools/list`/`tools/call` handlers (the high-level `registerTool` only accepts Zod/Standard Schema input, not raw JSON Schema, in SDK 1.30), and `IntrospectionOf` produces the same introspection type `mcp-tada introspect` would generate, for a same-codebase client with no network round trip.
+Shipped as `packages/mcp-tada-server`: `defineTool`/`defineTools` declare tools once from plain JSON Schema with a typed handler, `registerTools` installs them on an `McpServer` via the low-level `tools/list`/`tools/call` handlers (SDK v2's high-level `registerTool` takes JSON Schema through `fromJsonSchema`, but re-renders it, and the point is emitting the written schema verbatim), and `IntrospectionOf` produces the same introspection type `mcp-tada introspect` would generate, for a same-codebase client with no network round trip.
+
+## SDK v1 and v2
+
+Shipped: the typed client accepts a `Client` from either SDK through the structural `ClientLike` in `packages/mcp-tada/src/wire.ts`, and the CLI loads whichever SDK is installed through `packages/mcp-tada/src/cli/sdk.ts` (v2 first); only `mcp-tada-server` is v2-only. The v1 `callTool` arity is selected per client by the presence of `getProtocolEra`, which only v2's `Client` has. Drop v1 acceptance, the v1 loader, and the v1 devDependency that tests them, once `@modelcontextprotocol/sdk` 1.x stops being maintained; until then, a v1 release that grows a `getProtocolEra` method would need a different discriminator.
 
 ## Mapper coverage from the survey
 

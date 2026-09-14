@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { initMcpTada } from "../src/index.js";
+import { initMcpTada, type Tool } from "../src/index.js";
 import { combineMcpTada } from "../src/combine.js";
 import { listAllPrompts, listAllTools } from "../src/list.js";
 import type { introspection } from "./fixtures/everything.introspection.d.ts";

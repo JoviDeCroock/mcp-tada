@@ -51,14 +51,16 @@ an existing config still needs `--force`.
 ## `mcp-tada doctor`
 
 ```
-mcp-tada doctor [--config <path>] [--offline] [--timeout <ms>]
+mcp-tada doctor [--config <path>] [--offline] [--timeout <ms>] [--protocol <mode>]
 ```
 
 Runs the setup checks in order and prints one line per check, prefixed `ok`, `warn`, or `fail`:
 
-- `@modelcontextprotocol/sdk` is installed (`fail` otherwise) and at least 1.20.0 (`warn`
-  otherwise); `typescript` is installed and at least 5.4.0 (`warn` otherwise). Both are found by
-  looking for `node_modules/<name>/package.json` in the current directory and its parents.
+- An MCP SDK is installed: `@modelcontextprotocol/client` (v2) at least 2.0.0, or, when only
+  it is present, `@modelcontextprotocol/sdk` (v1) at least 1.20.0 (`warn` below the floor,
+  `fail` naming both packages when neither is installed). The CLI runs on the one it reports.
+  `typescript` is installed and at least 5.4.0 (`warn` otherwise). Packages are found by looking
+  for `node_modules/<name>/package.json` in the current directory and its parents.
 - The config (`--config`, default `mcp-tada.config.json`) exists and loads (`fail` otherwise),
   and configures at least one server (`warn` otherwise).
 - No two servers share an `output` (`fail`), and every server has a `command` or `url` (`fail`).
@@ -128,12 +130,13 @@ Each prompt records its argument names and `required` flags in the server's orde
 block rather than the data, so a reworded description does not read as drift in `check`.
 
 The header comment records the server's name and version (`client.getServerVersion()`), the
-negotiated protocol version (only the streamable HTTP transport exposes it; the line is omitted
-for stdio and SSE servers), the `tools.listChanged`
-capability, `prompts.listChanged` when the server offers prompts, and, when present in the raw `tools/list` result, `ttlMs` / `cacheScope`. Those last
-two are read defensively as unknown fields: they are part of a 2026-07-28 MCP spec RC for
-result caching hints and are not yet in `@modelcontextprotocol/sdk`'s `ListToolsResult` type as
-of SDK 1.30, so most servers will not send them and the lines are omitted when absent.
+negotiated protocol version (on every transport through SDK v2; through v1 only the streamable
+HTTP transport exposes it, so the line is omitted for stdio and SSE servers), the
+`tools.listChanged` capability, `prompts.listChanged` when the server offers prompts, and, when
+present in the raw `tools/list` result, `ttlMs` / `cacheScope`. Those last two are read
+defensively as unknown fields: the 2026-07-28 spec revision adds them as result caching hints,
+but a server only sends them on a connection that negotiated that revision, and the CLI still
+uses the legacy handshake by default; opt into modern negotiation with `--protocol auto`. The lines are omitted when absent.
 
 ### Target flags
 
@@ -159,6 +162,20 @@ mcp-tada introspect --url https://example.com/mcp --header "Authorization: Beare
 ```
 
 `--header` may be repeated. Header values are parsed as `Name: Value` (split on the first `:`).
+
+### Protocol revision
+
+`--protocol legacy` (the default) uses the 2025-era handshake without a discovery probe.
+With SDK v2 installed, `--protocol auto` negotiates 2026-07-28 when offered and falls back to
+legacy otherwise; `--protocol 2026-07-28` requires that revision. A legacy stdio server that
+ignores discovery can delay `auto` until the probe times out, so opt in explicitly.
+SDK v1 rejects `auto` and pinned revisions with an instruction to install SDK v2.
+
+`introspect`, `check`, and `doctor` accept this flag. Set `"protocol": "auto"` on a config
+server entry for a persistent choice; the flag overrides that setting. Programmatic callers
+use `ServerTarget.protocol` or `DoctorOptions.protocol`, with the same legacy default.
+Modern connections record the negotiated protocol and cache hints in the snapshot header
+without changing the tool and prompt maps.
 
 ### Timeout
 
@@ -341,8 +358,10 @@ mcp-tada check
 
 Since mcp-tada 0.2.0, the same code the CLI runs is exported from the `mcp-tada/cli` subpath, minus argv parsing, so a
 build script or test suite can drive it directly instead of shelling out. It is a separate entry
-from `mcp-tada` because it imports `node:fs` and the SDK transports, which the zero-runtime
-client entry must stay free of.
+from `mcp-tada` because it imports `node:fs` and, lazily, an SDK's transports, which the
+zero-runtime client entry must stay free of. `detectSdk()` and `loadSdk()` are exported too, with the `MCP_TADA_SDK`
+environment variable name as `SDK_ENV` (a value other than `v1` or `v2` is an error), for a
+script that wants to know which SDK the CLI is about to use.
 
 ```ts
 import { check, introspect } from "mcp-tada/cli";

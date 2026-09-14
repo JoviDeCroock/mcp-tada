@@ -27,7 +27,7 @@
     "prepublishOnly": "pnpm build"
   },
   "peerDependencies": {
-    "@modelcontextprotocol/sdk": ">=1.20.0",
+    "@modelcontextprotocol/server": ">=2.0.0",
     "mcp-tada": "workspace:^",
     "typescript": ">=5.4.0"
   },
@@ -37,7 +37,8 @@
     }
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@types/node": "^26.5.0",
     "mcp-tada": "workspace:^",
     "typescript": "^7.0.2",

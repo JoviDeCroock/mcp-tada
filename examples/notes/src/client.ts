@@ -1,7 +1,7 @@
 // A typed client for the notes server. Every callTool below is checked against the snapshot in
 // notes.introspection.d.ts, which `pnpm introspect` regenerates from the running server.
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { initMcpTada, readOnly } from "mcp-tada";
 import type { IntrospectionOf } from "mcp-tada-server";
 import type { introspection } from "./notes.introspection.js";
@@ -14,7 +14,10 @@ type FromDefinitions = IntrospectionOf<typeof tools>;
 const sameShape: FromSnapshot extends FromDefinitions ? true : false = true;
 void sameShape;
 
-const client = new Client({ name: "notes-example", version: "0.1.0" });
+const client = new Client(
+  { name: "notes-example", version: "0.1.0" },
+  { versionNegotiation: { mode: "auto" } },
+);
 await client.connect(
   new StdioClientTransport({
     command: "node",

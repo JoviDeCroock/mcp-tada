@@ -1,6 +1,7 @@
 // Typed calls against public Streamable HTTP servers: typed outputs where the server declares
 // an outputSchema, a real prompt, and several servers behind one combined client.
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { Client } from "@modelcontextprotocol/client";
+import type { Client as ClientV1 } from "@modelcontextprotocol/sdk/client/index.js";
 import { combineMcpTada, initMcpTada } from "mcp-tada";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { introspection as Cloudflare } from "../snapshots/cloudflare.introspection.js";
@@ -11,21 +12,26 @@ import { committedSnapshot, connectHttp, expectStructuredContentToMatch } from "
 let deepwiki: Client;
 let cloudflare: Client;
 let context7: Client;
+let deepwikiV1: ClientV1;
 
 beforeAll(async () => {
-  [deepwiki, cloudflare, context7] = await Promise.all([
+  [deepwiki, cloudflare, context7, deepwikiV1] = await Promise.all([
     connectHttp("https://mcp.deepwiki.com/mcp"),
     connectHttp("https://docs.mcp.cloudflare.com/mcp"),
     connectHttp("https://mcp.context7.com/mcp"),
+    connectHttp("https://mcp.deepwiki.com/mcp", "v1"),
   ]);
 });
 afterAll(async () => {
-  await Promise.all([deepwiki.close(), cloudflare.close(), context7.close()]);
+  await Promise.all([deepwiki.close(), cloudflare.close(), context7.close(), deepwikiV1.close()]);
 });
-
-describe("DeepWiki", () => {
+// The DeepWiki case runs through both SDKs' Streamable HTTP transports.
+describe.each([
+  { sdk: "v2", client: () => deepwiki },
+  { sdk: "v1", client: () => deepwikiV1 },
+])("DeepWiki ($sdk)", ({ client }) => {
   it("types read_wiki_structure from its outputSchema and the data validates", async () => {
-    const wiki = initMcpTada<DeepWiki>().typed(deepwiki);
+    const wiki = initMcpTada<DeepWiki>().typed(client());
     const result = await wiki.tools.read_wiki_structure({ repoName: "0no-co/gql.tada" });
     if (result.isError) throw new Error("read_wiki_structure failed");
     expect(result.structuredContent.result).toBeTypeOf("string");

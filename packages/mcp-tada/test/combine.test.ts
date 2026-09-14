@@ -1,30 +1,19 @@
-import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { combineMcpTada, initMcpTada } from "../src/index.js";
 import type { introspection } from "./fixtures/everything.introspection.d.ts";
+import { connectEverything, serverAvailable, type SdkClient } from "./helpers.js";
 
-const serverPath = fileURLToPath(
-  new URL("../node_modules/@modelcontextprotocol/server-everything/dist/index.js", import.meta.url),
-);
-const serverAvailable = existsSync(serverPath);
-
+// One server behind a v1 SDK client and one behind a v2 SDK client, combined: the two SDKs can
+// coexist in a process, and `combineMcpTada` does not care which one a typed client wraps.
 describe.runIf(serverAvailable)("combineMcpTada (runtime, server-everything)", () => {
-  let clientA: Client;
-  let clientB: Client;
-  let transportA: StdioClientTransport;
-  let transportB: StdioClientTransport;
+  let clientA: SdkClient;
+  let clientB: SdkClient;
 
   beforeAll(async () => {
-    transportA = new StdioClientTransport({ command: "node", args: [serverPath] });
-    clientA = new Client({ name: "mcp-tada-test-a", version: "0.0.0" });
-    await clientA.connect(transportA);
-
-    transportB = new StdioClientTransport({ command: "node", args: [serverPath] });
-    clientB = new Client({ name: "mcp-tada-test-b", version: "0.0.0" });
-    await clientB.connect(transportB);
+    [clientA, clientB] = await Promise.all([
+      connectEverything("v1", "mcp-tada-test-a"),
+      connectEverything("v2", "mcp-tada-test-b"),
+    ]);
   });
 
   afterAll(async () => {

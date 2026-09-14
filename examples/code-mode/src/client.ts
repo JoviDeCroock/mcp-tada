@@ -10,8 +10,7 @@
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 import Anthropic from "@anthropic-ai/sdk";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { initMcpTada } from "mcp-tada";
 import type { introspection } from "./deepwiki.introspection.js";
 

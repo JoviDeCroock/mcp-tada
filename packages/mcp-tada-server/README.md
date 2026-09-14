@@ -8,11 +8,14 @@ emits the exact JSON Schemas on `tools/list`; `IntrospectionOf` gives you the sa
 type `mcp-tada introspect` would generate, for a same-codebase client with no network round trip.
 
 ```sh
-pnpm add mcp-tada-server mcp-tada @modelcontextprotocol/sdk
+pnpm add mcp-tada-server mcp-tada @modelcontextprotocol/server
 ```
 
+Built on MCP SDK v2: `@modelcontextprotocol/server` is a peer dependency. The 0.1.x line is the last
+one for the v1 `@modelcontextprotocol/sdk`.
+
 ```ts
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { defineTools, registerTools, type IntrospectionOf } from "mcp-tada-server";
 import { initMcpTada } from "mcp-tada";
 
@@ -38,7 +41,7 @@ const server = new McpServer({ name: "my-server", version: "1.0.0" });
 registerTools(server, tools);
 
 // Elsewhere in the same codebase, a typed client with zero network round trip:
-declare const client: import("@modelcontextprotocol/sdk/client/index.js").Client;
+declare const client: import("@modelcontextprotocol/client").Client;
 const mcp = initMcpTada<IntrospectionOf<typeof tools>>().typed(client);
 const result = await mcp.callTool("sum", { a: 1, b: 2 });
 result.structuredContent.total; // typed as number
@@ -60,10 +63,18 @@ await safe.callTool("peek"); // ok
 await safe.callTool("wipe"); // compile error
 ```
 
+## Handler context
+
+A handler receives `(args, ctx)`. `ctx` is SDK v2's `ServerContext`, exported here as `ToolExtra`:
+the request's abort signal is `ctx.mcpReq.signal`, its id `ctx.mcpReq.id`, the session
+`ctx.sessionId`, and, over HTTP, `ctx.http?.authInfo`. (SDK v1 passed a flat `extra` object with
+`extra.signal`; the codemod in the SDK's migration guide rewrites those reads.)
+
 ## Why the low-level handlers
 
-The SDK's high-level `McpServer.registerTool` only accepts Zod (or Standard Schema) input, not raw
-JSON Schema, so it cannot emit our schemas verbatim. `registerTools` installs the low-level
+The SDK's high-level `McpServer.registerTool` takes a Standard Schema object (Zod, or JSON Schema
+wrapped by the SDK's `fromJsonSchema`) and derives the wire schema from it, so what reaches
+`tools/list` is the SDK's rendering rather than the JSON Schema you wrote. `registerTools` installs the low-level
 `tools/list`/`tools/call` request handlers directly instead, on the low-level server (`server.server`
 when given an `McpServer`, or `server` itself when given a plain low-level `Server`). Because of
 that, when given an `McpServer`, call it at most once per instance, and avoid also calling

@@ -1,4 +1,4 @@
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { Client } from "@modelcontextprotocol/client";
 import { describe, expectTypeOf, test } from "vitest";
 import { initMcpTada, readOnly } from "../src/index.js";
 import type {
