@@ -1,5 +1,16 @@
 # mcp-tada-server
 
+## 0.2.0
+
+### Minor Changes
+
+- [#21](https://github.com/JoviDeCroock/mcp-tada/pull/21) [`1394e22`](https://github.com/JoviDeCroock/mcp-tada/commit/1394e22f58d60b9ec0c708db824ad2c2d100499c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `mcp-tada-server` now targets MCP SDK v2: it peer-depends on `@modelcontextprotocol/server` instead of `@modelcontextprotocol/sdk`, and tool handlers receive v2's `ServerContext` as their second argument. Replace the dependency, import `McpServer` from `@modelcontextprotocol/server`, and read `ctx.mcpReq.signal` where a handler read `extra.signal`.
+
+### Patch Changes
+
+- Updated dependencies [[`a7bafc9`](https://github.com/JoviDeCroock/mcp-tada/commit/a7bafc9a480bc44df4d94b205535f3de03119d20), [`a7bafc9`](https://github.com/JoviDeCroock/mcp-tada/commit/a7bafc9a480bc44df4d94b205535f3de03119d20), [`a7bafc9`](https://github.com/JoviDeCroock/mcp-tada/commit/a7bafc9a480bc44df4d94b205535f3de03119d20), [`1394e22`](https://github.com/JoviDeCroock/mcp-tada/commit/1394e22f58d60b9ec0c708db824ad2c2d100499c)]:
+  - mcp-tada@0.4.0
+
 ## 0.1.1
 
 ### Patch Changes
