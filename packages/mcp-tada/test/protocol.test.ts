@@ -56,33 +56,39 @@ describe("protocol negotiation", () => {
     }
   });
 
-  it("honours config and flag precedence across introspect, check, and doctor", async () => {
-    vi.stubEnv(SDK_ENV, "v2");
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    const dir = mkdtempSync(join(tmpdir(), "mcp-tada-protocol-"));
-    dirs.push(dir);
-    const config = join(dir, "config.json");
-    const output = join(dir, "introspection.d.ts");
-    const writeConfig = (protocol: string) =>
-      writeFileSync(
-        config,
-        JSON.stringify({
-          servers: { modern: { ...target, env: { MODERN_ONLY: "1" }, protocol, output } },
-        }),
-      );
-    writeConfig("legacy");
-    await expect(runIntrospectWith({ config })).rejects.toThrow();
-    expect(await runIntrospectWith({ config, protocol: "auto" })).toBe(0);
-    expect(readFileSync(output, "utf8")).toContain("// protocolVersion: 2026-07-28");
-    await expect(runCheckWith({ config })).rejects.toThrow();
-    expect(await runCheckWith({ config, protocol: "2026-07-28" })).toBe(0);
-    expect(await runDoctorWith({ config, protocol: "auto" })).toBe(0);
-    expect(await runDoctorWith({ config })).toBe(1);
-    writeConfig("2026-07-28");
-    expect(await runIntrospectWith({ config })).toBe(0);
-    expect(await runCheckWith({ config })).toBe(0);
-    expect(await runDoctorWith({ config })).toBe(0);
-    expect(await runDoctorWith({ config, protocol: "legacy" })).toBe(1);
-  });
+  // This scenario exercises four rejected legacy connections plus modern retries. Each
+  // connection has its own 3s deadline, so the default 5s test budget is insufficient.
+  it(
+    "honours config and flag precedence across introspect, check, and doctor",
+    { timeout: 20000 },
+    async () => {
+      vi.stubEnv(SDK_ENV, "v2");
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+      const dir = mkdtempSync(join(tmpdir(), "mcp-tada-protocol-"));
+      dirs.push(dir);
+      const config = join(dir, "config.json");
+      const output = join(dir, "introspection.d.ts");
+      const writeConfig = (protocol: string) =>
+        writeFileSync(
+          config,
+          JSON.stringify({
+            servers: { modern: { ...target, env: { MODERN_ONLY: "1" }, protocol, output } },
+          }),
+        );
+      writeConfig("legacy");
+      await expect(runIntrospectWith({ config })).rejects.toThrow();
+      expect(await runIntrospectWith({ config, protocol: "auto" })).toBe(0);
+      expect(readFileSync(output, "utf8")).toContain("// protocolVersion: 2026-07-28");
+      await expect(runCheckWith({ config })).rejects.toThrow();
+      expect(await runCheckWith({ config, protocol: "2026-07-28" })).toBe(0);
+      expect(await runDoctorWith({ config, protocol: "auto" })).toBe(0);
+      expect(await runDoctorWith({ config })).toBe(1);
+      writeConfig("2026-07-28");
+      expect(await runIntrospectWith({ config })).toBe(0);
+      expect(await runCheckWith({ config })).toBe(0);
+      expect(await runDoctorWith({ config })).toBe(0);
+      expect(await runDoctorWith({ config, protocol: "legacy" })).toBe(1);
+    },
+  );
 });
