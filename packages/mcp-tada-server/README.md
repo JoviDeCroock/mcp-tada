@@ -111,3 +111,67 @@ validation errors, the same as an input mismatch.
 
 See the root `README.md` for `mcp-tada` itself, and `AGENTS.md` for the introspection contract
 shared between `mcp-tada` and this package.
+
+## Multi-round-trip elicitation
+
+On protocol 2026-07-28, a handler can return the SDK's `InputRequiredResult` to ask for input
+before finishing. `registerTools` passes that intermediate result directly to the SDK, even
+when the tool declares an `outputSchema` and `validateOutput` is enabled. Only the completed
+structured output is checked against that schema.
+
+```ts
+import type { InputRequiredResult } from "@modelcontextprotocol/server";
+import { defineTool } from "mcp-tada-server";
+
+const confirmation: InputRequiredResult = {
+  resultType: "input_required",
+  inputRequests: {
+    confirm: {
+      method: "elicitation/create",
+      params: {
+        mode: "form",
+        message: "Continue?",
+        requestedSchema: {
+          type: "object",
+          properties: { confirmed: { type: "boolean" } },
+          required: ["confirmed"],
+        },
+      },
+    },
+  },
+};
+
+const tool = defineTool({
+  name: "confirm",
+  inputSchema: { type: "object" },
+  outputSchema: { type: "boolean" },
+  handler: (_args, ctx) => {
+    const response = ctx.mcpReq.inputResponses?.confirm;
+    if (response === undefined) return confirmation;
+    if (typeof response !== "object" || response === null ||
+        !("action" in response) || response.action !== "accept" ||
+        !("content" in response)) return false;
+    const content = response.content;
+    return typeof content === "object" && content !== null &&
+      "confirmed" in content && content.confirmed === true;
+  },
+});
+```
+
+Serve modern requests with the SDK's `createMcpHandler` or `serveStdio`. Configure a v2 client
+with modern negotiation, `capabilities: { elicitation: { form: {} } }`, and a
+`client.setRequestHandler("elicitation/create", handler)` callback. The SDK's default automatic
+fulfillment invokes that callback and retries the original tool call; the typed client returns
+the completed result. Manual multi-round-trip handling stays on the underlying SDK client.
+On legacy connections, the SDK's default `inputRequired.legacyShim` translates the same handler
+result into legacy server-to-client requests when the client declares the needed capability.
+Setting `inputRequired: { legacyShim: false }` on the server restores rejection there.
+
+Read retry responses from `ctx.mcpReq.inputResponses` and validate them before use. If returning
+`requestState`, use the SDK's state integrity facilities and read it through
+`ctx.mcpReq.requestState()`. If a tool's ordinary data itself has `resultType: "input_required"`,
+return it in `{ structuredContent: data }` to distinguish it from a protocol response.
+
+The modern protocol also permits primitive, array and null structured output. Their schemas
+are preserved in introspection, inferred by the client, and checked when `validateOutput` is
+enabled; the helper emits a JSON text block alongside the structured value.
