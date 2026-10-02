@@ -25,3 +25,7 @@ What is covered, per server in `mcp-tada.config.json`:
   `mcp-tada-server` runs on the wire, plus `readOnly` list filtering, a real prompt through
   `getPrompt`, and three servers behind `combineMcpTada`.
 - `test/types.e2e-d.ts`: type assertions over the committed snapshots, no network.
+
+CI runs verification and this real-server suite for pull requests targeting any branch, including
+stacked pull requests. If a public server changes its contract, regenerate its snapshot with
+`pnpm --filter @mcp-tada/e2e introspect <alias>` and review the schema diff before committing.
