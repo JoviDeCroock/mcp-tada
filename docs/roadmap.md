@@ -13,7 +13,10 @@ Remaining freshness work:
 
 - Persist `ttlMs`, `cacheScope`, and the introspection timestamp in the snapshot header and expose them in `parseDtsSnapshot`.
 - Make `check` warn when a snapshot is older than its `ttlMs`, and refuse with a clear message when `cacheScope` says the list is per-user and the snapshot is being treated as shared.
-- Add `introspect --watch` for servers that declare `tools.listChanged`, re-emitting the file on each notification during development.
+- Add `introspect --watch`: on 2026-07-28 connections, open `subscriptions/listen` with
+  `toolsListChanged` / `promptsListChanged` filters for the advertised capabilities before
+  relying on notifications. Use the SDK to handle legacy notification delivery, reconnect and
+  cancellation; re-fetch the affected lists and re-emit the snapshot after changes.
 - Re-run the survey scripts referenced in `survey.md` and update its `ttlMs` / `cacheScope` column.
 
 ## Server-side package
@@ -51,16 +54,47 @@ prefix as tools. Still open, in rough order of value:
 
 ## Skills over MCP
 
-SEP-2640 (Extensions Track, draft as of 2026-09) exposes agent skills over existing resources:
-each skill file is a resource under `skill://<path>/<file>`, servers declare the extension as
-`capabilities.extensions["io.modelcontextprotocol/skills"]`, and a `skills/list` method returns
-entries with `uri`, `name`, `description`, `frontmatter` (the SKILL.md YAML as JSON) and
-`resources`. It is not in `@modelcontextprotocol/sdk` 1.30 and no surveyed server implements it.
+[SEP-2640](https://modelcontextprotocol.io/seps/2640-skills-extension) reached Final on
+2026-09-13. The [Skills extension](https://modelcontextprotocol.io/extensions/skills/overview)
+is optional; SDK and host support is still being implemented. It is not implemented by
+mcp-tada. The September 10 server survey predates finalization and is not evidence of current
+adoption.
 
-When the SDK ships it: snapshot `skills/list` into a `skills` map keyed by name with the
-frontmatter as a JSON type literal, so an agent harness can type which skills a server offers and
-read `SKILL.md` through a typed `readResource`. Until then it is reachable with
-`client.request({ method: "skills/list" })` and no types.
+The accepted design requires `resources` plus
+`capabilities.extensions["io.modelcontextprotocol/skills"]`, and provides:
+
+- `skills/list` for paginated discovery and `skills/get` for retrieval by URI, including skills
+  absent from an empty or partial listing.
+- Entries containing `uri`, `frontmatter` (including `name` and `description`), and `resources`:
+  either a complete manifest of file URIs, SHA-256 digests and byte sizes, or `"dynamic"`.
+- `resources/read` for file contents and optional `resources/directory/read`, gated by the
+  extension's `directoryRead` capability.
+
+Before adding support, verify the available SDK extension API and add a fixture from an
+implementing server. Snapshot known skills by URI within each server, preserving frontmatter
+and manifest metadata as JSON. Names are labels and can collide; cross-server identity must
+retain both the server and URI. Keep direct URI retrieval available because a snapshot cannot
+claim to enumerate every skill. Any snapshot extension must update the CLI writer/parser,
+client types and server-side introspection contract together.
+
+Reading a resource does not activate a skill. Content integrity checks, activation, approval and
+execution belong to the host; the zero-runtime client must not imply that a typed snapshot
+performs them.
+
+## Protocol follow-ups
+
+The [2026-07-28 specification](https://modelcontextprotocol.io/specification/2026-07-28/changelog)
+is released. SDK v2 removes the wire-only `resultType` from completed results; do not promise
+that discriminator on the typed client. Keep SDK multi-round-trip elicitation handling intact,
+pass server-side `input_required` results through before output wrapping, and cover primitive,
+array and null structured outputs in client / server integration tests. Transport metadata and
+HTTP parameter headers should stay in the SDK.
+
+The [August 22 roadmap](https://modelcontextprotocol.io/development/roadmap) also targets
+progressive discovery, revised tool result semantics, ETags and HTTP over stdio. These are
+planning directions, not shipped requirements. Revisit the assumption of a complete tool
+catalog when a concrete discovery extension is available; do not change the snapshot contract
+or add transports based on roadmap proposals alone.
 
 ## Multi-server composition
 

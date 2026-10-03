@@ -9,11 +9,12 @@
 export type introspection = {
   "tools": {
     /**
-     * Ask any question about a GitHub repository and get an AI-powered, context-grounded response.
+     * Ask any question about a GitHub repository's codebase and get an AI-powered answer
+     * grounded in its DeepWiki.
      * @param args.repoName GitHub repository or list of repositories (max 10) in owner/repo format.
      * @param args.question The question to ask about the repository.
      */
-    "ask_question": {
+    "ask_wiki_question": {
       "inputSchema": {
         "type": "object",
         "properties": {

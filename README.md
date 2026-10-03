@@ -301,3 +301,11 @@ See `AGENTS.md` for contributor conventions and `.changeset/` for release notes.
 ## Status
 
 Pre-1.0, but the surfaces people build on are settled: the snapshot format (a name-keyed tool map, plus `annotations` and `prompts` when present) is a public contract, older snapshots keep loading, and `initMcpTada`, `readOnly`, `combineMcpTada`, `mockMcpTada`, and the four CLI commands are not expected to change shape. Breaking changes, when they happen, are called out in the changelog with a migration note.
+
+## Protocol roadmap
+
+The official [Skills over MCP extension](https://modelcontextprotocol.io/extensions/skills/overview)
+is final, but mcp-tada does not yet introspect or retrieve skills through that extension. The
+[agent skills](#agent-skills) shipped with this package are local instructions installed by
+`init --skills`, a separate feature. See [the contributor roadmap](docs/roadmap.md#skills-over-mcp)
+for URI-based discovery plans and the boundary between typed metadata and host-side activation.
