@@ -12,7 +12,10 @@ import type {
   ContentBlock,
   GetPromptResult,
   Prompt,
+  ReadResourceResult,
   RequestOptions,
+  Resource,
+  ResourceTemplate,
   Tool,
   ToolAnnotations,
 } from "../src/index.js";
@@ -28,6 +31,9 @@ describe("SDK v2 (@modelcontextprotocol/client) fits the wire types", () => {
     expectTypeOf<V2.GetPromptResult>().toMatchTypeOf<GetPromptResult>();
     expectTypeOf<V2.ContentBlock>().toMatchTypeOf<ContentBlock>();
     expectTypeOf<V2.CallToolResult["content"]>().toMatchTypeOf<ContentBlock[]>();
+    expectTypeOf<V2.Resource>().toMatchTypeOf<Resource>();
+    expectTypeOf<V2.ResourceTemplateType>().toMatchTypeOf<ResourceTemplate>();
+    expectTypeOf<V2.ReadResourceResult>().toMatchTypeOf<ReadResourceResult>();
   });
   test("request options a caller passes are accepted", () => {
     expectTypeOf<V2.RequestOptions>().toMatchTypeOf<RequestOptions>();
@@ -45,6 +51,9 @@ describe("SDK v1 (@modelcontextprotocol/sdk) fits the wire types", () => {
     expectTypeOf<V1.GetPromptResult>().toMatchTypeOf<GetPromptResult>();
     expectTypeOf<V1.ContentBlock>().toMatchTypeOf<ContentBlock>();
     expectTypeOf<V1.CallToolResult["content"]>().toMatchTypeOf<ContentBlock[]>();
+    expectTypeOf<V1.Resource>().toMatchTypeOf<Resource>();
+    expectTypeOf<V1.ResourceTemplate>().toMatchTypeOf<ResourceTemplate>();
+    expectTypeOf<V1.ReadResourceResult>().toMatchTypeOf<ReadResourceResult>();
   });
   test("request options a caller passes are accepted", () => {
     expectTypeOf<RequestOptionsV1>().toMatchTypeOf<RequestOptions>();

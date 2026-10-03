@@ -68,6 +68,22 @@ describe("introspect", () => {
     expect(result.text).toMatch(/@param city Name of the city\s*\n\s*\*\/\s*\n\s*"args-prompt"/);
     const promptNames = Object.keys(parsed.prompts ?? {});
     expect(promptNames).toEqual([...promptNames].sort());
+
+    // resources are keyed by URI, templates by name; descriptions go into the JSDoc
+    expect(result.text).toContain("// capabilities.resources.listChanged: true");
+    expect(parsed.resources?.["demo://resource/static/document/architecture.md"]).toEqual({
+      name: "architecture.md",
+      mimeType: "text/markdown",
+    });
+    expect(parsed.resourceTemplates?.["Dynamic Text Resource"]).toEqual({
+      uriTemplate: "demo://resource/dynamic/text/{resourceId}",
+      mimeType: "text/plain",
+    });
+    expect(result.text).toMatch(
+      /Plaintext dynamic resource[^\n]*\n\s*\*\/\s*\n\s*"Dynamic Text Resource"/,
+    );
+    const uris = Object.keys(parsed.resources ?? {});
+    expect(uris).toEqual([...uris].sort());
   }, 30_000);
 
   it("does not rewrite the file when content is unchanged", async () => {
@@ -165,6 +181,42 @@ describe("check", () => {
     expect(report.promptsRemoved).toEqual(["retired-prompt"]);
     expect(report.promptsChanged).toEqual(["args-prompt"]);
     expect(text).toContain("args-prompt: prompt arguments changed");
+  }, 30_000);
+
+  it("reports added, removed and changed resources and templates", async () => {
+    const out = tmpFile("introspection.json");
+    const result = await introspect({ target, out, json: true });
+    const data = JSON.parse(result.text) as {
+      resources: Record<string, { name: string; mimeType?: string }>;
+      resourceTemplates: Record<string, { uriTemplate: string; mimeType?: string }>;
+    };
+    const arch = "demo://resource/static/document/architecture.md";
+    delete data.resources[arch]; // live has it, snapshot does not: added
+    data.resources["demo://gone"] = { name: "gone" }; // removed
+    delete data.resources["demo://resource/static/document/extension.md"]!.mimeType; // gained a mimeType: additive
+    data.resources["demo://resource/static/document/features.md"]!.mimeType = "text/html"; // breaking
+    data.resourceTemplates["Dynamic Text Resource"]!.uriTemplate = "demo://old/{id}"; // breaking
+    delete data.resourceTemplates["Dynamic Blob Resource"]; // added
+    data.resourceTemplates["Retired"] = { uriTemplate: "x://{y}" }; // removed
+    writeFileSync(out, JSON.stringify(data, null, 2));
+
+    const { report, text } = await check({ target, against: out });
+    expect(report.resourcesAdded).toEqual([arch]);
+    expect(report.resourcesRemoved).toEqual(["demo://gone"]);
+    expect(report.resourcesChanged).toEqual([
+      "demo://resource/static/document/extension.md",
+      "demo://resource/static/document/features.md",
+    ]);
+    expect(report.resourceTemplatesAdded).toEqual(["Dynamic Blob Resource"]);
+    expect(report.resourceTemplatesRemoved).toEqual(["Retired"]);
+    expect(report.resourceTemplatesChanged).toEqual(["Dynamic Text Resource"]);
+    const severity = Object.fromEntries(report.changes.map((c) => [c.subject, c.severity]));
+    expect(severity["demo://resource/static/document/extension.md"]).toBe("additive");
+    expect(severity["demo://resource/static/document/features.md"]).toBe("breaking");
+    expect(severity["Dynamic Text Resource"]).toBe("breaking");
+    expect(severity["demo://gone"]).toBe("breaking");
+    expect(text).toContain('uriTemplate is now "demo://resource/dynamic/text/{resourceId}"');
+    expect(text).toContain('mimeType is now "text/markdown", was "text/html"');
   }, 30_000);
 
   it("treats a snapshot taken before prompts were recorded as having none", async () => {

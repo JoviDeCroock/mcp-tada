@@ -1,4 +1,21 @@
-import { listAllPrompts, listAllTools } from "./list.js";
+import {
+  listAllPrompts,
+  listAllResourceTemplates,
+  listAllResources,
+  listAllTools,
+} from "./list.js";
+import { expandUriTemplate } from "./resources.js";
+import type {
+  HasNoRequiredTemplateVars,
+  ResourceEntry,
+  ResourceResult,
+  ResourceTemplateEntry,
+  ResourceTemplateNames,
+  ResourceTemplateOf,
+  ResourceTemplateResult,
+  ResourceUris,
+  UriTemplateParams,
+} from "./resources.js";
 import type {
   HasNoRequiredPromptArgs,
   PromptArgs,
@@ -13,6 +30,8 @@ import type {
   GetPromptResult,
   Prompt,
   RequestOptions,
+  Resource,
+  ResourceTemplate,
   Tool,
   ToolAnnotations,
 } from "./wire.js";
@@ -21,13 +40,20 @@ export type { FromOutputSchema, FromSchema } from "./schema.js";
 // The wire types a caller sees on the typed client's surface. The finer-grained ones (each
 // content block kind, a tool's schema shapes) are reachable from these by narrowing or indexing.
 export type {
+  BlobResourceContents,
   ClientLike,
   ContentBlock,
   GetPromptResult,
   ListPromptsResultLike,
+  ListResourceTemplatesResultLike,
+  ListResourcesResultLike,
   ListToolsResultLike,
   Prompt,
+  ReadResourceResult,
   RequestOptions,
+  Resource,
+  ResourceTemplate,
+  TextResourceContents,
   Tool,
   ToolAnnotations,
 } from "./wire.js";
@@ -41,8 +67,34 @@ export type {
   ReadOnlyToolNames,
   ToolAnnotationsOf,
 } from "./annotations.js";
-export { listAllPrompts, listAllTools } from "./list.js";
-export type { ListPromptsFn, ListToolsFn } from "./list.js";
+export {
+  listAllPrompts,
+  listAllResourceTemplates,
+  listAllResources,
+  listAllTools,
+} from "./list.js";
+export type {
+  ListPromptsFn,
+  ListResourceTemplatesFn,
+  ListResourcesFn,
+  ListToolsFn,
+} from "./list.js";
+export { expandUriTemplate } from "./resources.js";
+export type {
+  HasNoRequiredTemplateVars,
+  ResourceEntry,
+  ResourceMimeType,
+  ResourceResult,
+  ResourceTemplateEntry,
+  ResourceTemplateMimeType,
+  ResourceTemplateNames,
+  ResourceTemplateOf,
+  ResourceTemplateParams,
+  ResourceTemplateResult,
+  ResourceUris,
+  TypedReadResourceResult,
+  UriTemplateParams,
+} from "./resources.js";
 export type {
   PromptArgs,
   PromptArgsFrom,
@@ -62,13 +114,17 @@ export type ToolEntry = {
 
 /**
  * Shape of a generated introspection snapshot: a name-keyed map of tools, each carrying
- * its JSON Schema input (and optionally output) schema, and, when the server declares the
- * `prompts` capability, a name-keyed map of prompts with their argument lists. Matches the
- * output of `mcp-tada introspect`.
+ * its JSON Schema input (and optionally output) schema; when the server declares the
+ * `prompts` capability, a name-keyed map of prompts with their argument lists; and when it
+ * declares `resources`, a URI-keyed map of static resources and a name-keyed map of resource
+ * templates, each with its `mimeType` when the server sent one. Matches the output of
+ * `mcp-tada introspect`.
  */
 export type Introspection = {
   tools: Record<string, ToolEntry>;
   prompts?: Record<string, PromptEntry>;
+  resources?: Record<string, ResourceEntry>;
+  resourceTemplates?: Record<string, ResourceTemplateEntry>;
 };
 
 /** Alias kept for discoverability alongside `Introspection`. */
@@ -150,6 +206,12 @@ type GetPromptArgs<N extends PromptNames<I>, I extends Introspection> =
     ? [args?: PromptArgs<I, N>, options?: RequestOptions]
     : [args: PromptArgs<I, N>, options?: RequestOptions];
 
+// And for resource templates: `params` is optional when every variable is a query-style one.
+type ReadTemplateArgs<N extends ResourceTemplateNames<I>, I extends Introspection> =
+  HasNoRequiredTemplateVars<ResourceTemplateOf<I, N>> extends true
+    ? [params?: UriTemplateParams<ResourceTemplateOf<I, N>>, options?: RequestOptions]
+    : [params: UriTemplateParams<ResourceTemplateOf<I, N>>, options?: RequestOptions];
+
 /** The typed wrapper `initMcpTada<I>().typed(client)` returns. `C` is the concrete client that
  * was passed in (a v1 or v2 SDK `Client`, or anything else satisfying `ClientLike`), kept so
  * `mcp.client` still exposes that client's full API. */
@@ -168,6 +230,26 @@ export type TypedClient<I extends Introspection, C extends ClientLike = ClientLi
   /** Every prompt from every `prompts/list` page. Returns `[]` without a request when the
    * connected server does not declare the `prompts` capability (the SDK would throw). */
   listPrompts(): Promise<Prompt[]>;
+  /** `resources/read` with `uri` completed from the snapshot's static resources (any other
+   * string is accepted too, e.g. a URI a tool result handed back) and each content item's
+   * `mimeType` narrowed to what the snapshot recorded for a known URI. */
+  readResource<U extends ResourceUris<I> | (string & {})>(
+    uri: U,
+    options?: RequestOptions,
+  ): Promise<ResourceResult<I, U>>;
+  /** Expands one of the snapshot's resource templates with `params` (typed from the template's
+   * RFC 6570 variables) and reads the resulting URI. The template string is fetched from the
+   * live server once per typed client, since the snapshot only has it as a type. */
+  readResourceTemplate<N extends ResourceTemplateNames<I>>(
+    name: N,
+    ...rest: ReadTemplateArgs<N, I>
+  ): Promise<ResourceTemplateResult<I, N>>;
+  /** Every static resource from every `resources/list` page, or `[]` without a request when the
+   * connected server does not declare the `resources` capability. */
+  listResources(): Promise<Resource[]>;
+  /** Every template from every `resources/templates/list` page, or `[]` without a request when
+   * the connected server does not declare the `resources` capability. */
+  listResourceTemplates(): Promise<ResourceTemplate[]>;
   /** Every tool as a method: `mcp.tools.<name>(args?, options?)`. Backed by a `Proxy` since tool
    * names only exist at the type level, so `Object.keys(mcp.tools)` is empty; use `listTools()`
    * for runtime discovery. */
@@ -256,6 +338,47 @@ export function initMcpTada<I extends Introspection>() {
           options,
         );
       }
+      const hasResources = () => client.getServerCapabilities()?.resources !== undefined;
+      const listResources = () =>
+        hasResources() ? listAllResources(client.listResources.bind(client)) : Promise.resolve([]);
+      const listResourceTemplates = () =>
+        hasResources()
+          ? listAllResourceTemplates(client.listResourceTemplates.bind(client))
+          : Promise.resolve([]);
+      // The snapshot only records a template's string as a type, so the one to expand has to
+      // come from the server. Templates are listed once and cached by name for this wrapper.
+      let templatesByName: Promise<Map<string, string>> | undefined;
+      function templateFor(name: string): Promise<string> {
+        templatesByName ??= listResourceTemplates().then(
+          (templates) => new Map(templates.map((t) => [t.name, t.uriTemplate])),
+        );
+        return templatesByName.then((map) => {
+          const template = map.get(name);
+          if (template === undefined) {
+            throw new Error(`mcp-tada: the server lists no resource template named "${name}"`);
+          }
+          return template;
+        });
+      }
+      async function readResource<U extends ResourceUris<I> | (string & {})>(
+        uri: U,
+        options?: RequestOptions,
+      ): Promise<ResourceResult<I, U>> {
+        const result = await client.readResource({ uri }, options);
+        return result as unknown as ResourceResult<I, U>;
+      }
+      async function readResourceTemplate<N extends ResourceTemplateNames<I>>(
+        name: N,
+        ...rest: ReadTemplateArgs<N, I>
+      ): Promise<ResourceTemplateResult<I, N>> {
+        const [params, options] = rest as unknown as [
+          Record<string, string | string[]> | undefined,
+          RequestOptions | undefined,
+        ];
+        const uri = expandUriTemplate(await templateFor(name), params);
+        const result = await client.readResource({ uri }, options);
+        return result as unknown as ResourceTemplateResult<I, N>;
+      }
       return {
         client,
         listTools: () => listAllTools(client.listTools.bind(client)),
@@ -263,8 +386,12 @@ export function initMcpTada<I extends Introspection>() {
           client.getServerCapabilities()?.prompts === undefined
             ? Promise.resolve([])
             : listAllPrompts(client.listPrompts.bind(client)),
+        listResources,
+        listResourceTemplates,
         callTool,
         getPrompt,
+        readResource,
+        readResourceTemplate,
         tools: toolMethods<ToolMethods<I>>(callTool as never),
       };
     },

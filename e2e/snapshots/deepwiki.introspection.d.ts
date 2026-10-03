@@ -4,6 +4,7 @@
 // protocolVersion: 2025-11-25
 // capabilities.tools.listChanged: true
 // capabilities.prompts.listChanged: true
+// capabilities.resources.listChanged: true
 
 /* prettier-ignore */
 export type introspection = {
@@ -117,6 +118,12 @@ export type introspection = {
     }
   },
   "prompts": {
+
+  },
+  "resources": {
+
+  },
+  "resourceTemplates": {
 
   }
 };

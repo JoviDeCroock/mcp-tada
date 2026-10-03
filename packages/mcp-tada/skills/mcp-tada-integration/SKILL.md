@@ -54,12 +54,18 @@ if (!result.isError) result.structuredContent; // typed from outputSchema, else 
   (`"fs__read_file"`). `combined.tools.fs.read_file(...)` skips the prefix;
   `combined.servers.gh` reaches the underlying client. Prompts are prefixed the same way:
   `combined.getPrompt("gh__summarize", args)`, and `listPrompts()` returns prefixed names.
+- Resources are not merged; use `servers.<alias>.readResource(...)`.
+- `mcp.readResource(uri)` completes the snapshot's static resource URIs (any string is accepted)
+  and narrows `contents[].mimeType` for a known one. `mcp.readResourceTemplate(name, params)`
+  types `params` from the template's `{variables}` (query `{?a,b}` ones optional), expands it, and
+  reads the result. Both need the server to declare the `resources` capability when the snapshot
+  was taken; `listResources()` / `listResourceTemplates()` return `[]` on a server without it.
 - For a code-mode agent, give the model the snapshot text as the API declaration and let its
   program call `mcp.tools.*` in a sandbox. `node:vm` isolates scope, not privileges.
 
 ## Testing
 
-`mcp-tada/testing` exports `mockMcpTada<introspection>({ tools, prompts })`, a `TypedClient`
+`mcp-tada/testing` exports `mockMcpTada<introspection>({ tools, prompts, resources, resourceTemplates })`, a `TypedClient`
 backed by in-memory handlers instead of a server, so code that takes a typed client can be
 tested without spawning one.
 
@@ -80,9 +86,10 @@ expect(mcp.calls).toEqual([{ name: "read_file", args: { path: "README.md" } }]);
 - Handler arguments are typed from the tool's `inputSchema`. A tool with an `outputSchema` may
   return the bare `structuredContent`; the mock wraps it the way an SDK server would. A tool
   without one must return a full result.
-- Both maps are partial. An unmocked tool or prompt throws, naming it, so a test only describes
+- Every map is partial. An unmocked tool, prompt, or resource throws, naming it, so a test only describes
   what it exercises.
 - `calls` and `promptCalls` are unions on `name`, so `call.name === "x"` narrows `args`.
+  `resourceCalls` records `{ uri }` for `readResource` and `{ name, params }` for templates.
   `reset()` clears them.
 - It is a real `TypedClient`, so `readOnly` and `combineMcpTada` accept it. `client` throws on
   access, since there is no SDK client behind it, and `listTools()` reports the mocked names only.
@@ -110,6 +117,10 @@ from CI, with credentials in the runner's environment.
 - `typed(client)` accepts a `Client` from SDK v1 (`@modelcontextprotocol/sdk`) or v2
   (`@modelcontextprotocol/client`), and the CLI runs on whichever is installed (v2 first;
   `MCP_TADA_SDK=v1|v2` forces one). Install at least one of them next to mcp-tada.
-- `getPrompt` has no valid name on a snapshot of a server without the `prompts` capability.
+- `getPrompt` has no valid name on a snapshot of a server without the `prompts` capability, and
+  `readResourceTemplate` none on a snapshot without `resources`. `readResource` always accepts a
+  string; only the `mimeType` narrowing needs the snapshot.
+- `readResourceTemplate` throws when the live server no longer lists the template by that name:
+  the snapshot has the template string as a type only, so the runtime asks the server for it once.
 - Script `introspect` / `check` from `mcp-tada/cli`, not `mcp-tada`. The main entry has no
   `node:fs` or transport imports on purpose.

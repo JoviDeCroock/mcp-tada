@@ -66,6 +66,43 @@ describe("mockMcpTada", () => {
     expect(mcp.promptCalls).toEqual([{ name: "args-prompt", args: { city: "Chicago" } }]);
   });
 
+  it("answers resources by URI and templates by name, and records both", async () => {
+    const mcp = mockMcpTada<introspection>({
+      resources: {
+        "demo://resource/static/document/architecture.md": {
+          contents: [{ uri: "demo://a", mimeType: "text/markdown", text: "# a" }],
+        },
+      },
+      resourceTemplates: {
+        "Dynamic Text Resource": ({ resourceId }) => ({
+          contents: [{ uri: `demo://${resourceId}`, mimeType: "text/plain", text: resourceId }],
+        }),
+      },
+    });
+    const a = await mcp.readResource("demo://resource/static/document/architecture.md");
+    expect(a.contents[0]).toMatchObject({ text: "# a" });
+    const t = await mcp.readResourceTemplate("Dynamic Text Resource", { resourceId: "7" });
+    expect(t.contents[0]).toMatchObject({ uri: "demo://7", text: "7" });
+    expect(mcp.resourceCalls).toEqual([
+      { uri: "demo://resource/static/document/architecture.md" },
+      { name: "Dynamic Text Resource", params: { resourceId: "7" } },
+    ]);
+    await expect(mcp.readResource("demo://nope")).rejects.toThrow(
+      /no mock handler for resource "demo:\/\/nope"/,
+    );
+    await expect(
+      mcp.readResourceTemplate("Dynamic Blob Resource", { resourceId: "1" }),
+    ).rejects.toThrow(/no mock handler for resource template "Dynamic Blob Resource"/);
+    expect((await mcp.listResources()).map((r) => r.uri)).toEqual([
+      "demo://resource/static/document/architecture.md",
+    ]);
+    expect((await mcp.listResourceTemplates()).map((r) => r.name)).toEqual([
+      "Dynamic Text Resource",
+    ]);
+    mcp.reset();
+    expect(mcp.resourceCalls).toEqual([]);
+  });
+
   it("explains itself when the code under test reaches for the SDK client", () => {
     const mcp = mockMcpTada<introspection>();
     expect(() => mcp.client.listTools()).toThrow("no underlying SDK Client");

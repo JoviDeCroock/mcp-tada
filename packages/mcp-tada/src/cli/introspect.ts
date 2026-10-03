@@ -1,14 +1,21 @@
-// Connects to an MCP server, pages through tools/list (and prompts/list when the server declares
-// the prompts capability), and emits either a typed `introspection.d.ts` snapshot or the raw
-// data as JSON.
+// Connects to an MCP server, pages through tools/list (plus prompts/list, resources/list, and
+// resources/templates/list when the server declares those capabilities), and emits either a
+// typed `introspection.d.ts` snapshot or the raw data as JSON.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { listAllPrompts, listAllTools } from "../list.js";
-import type { Prompt, Tool } from "../wire.js";
+import {
+  listAllPrompts,
+  listAllResourceTemplates,
+  listAllResources,
+  listAllTools,
+} from "../list.js";
+import type { Prompt, Resource, ResourceTemplate, Tool } from "../wire.js";
 import { connectClient, withTimeoutWrapping, type ServerTarget } from "./connect.js";
 import type {
   IntrospectionData,
   PromptSnapshot,
+  ResourceSnapshot,
+  ResourceTemplateSnapshot,
   ToolAnnotationsSnapshot,
   ToolSnapshot,
 } from "./snapshot.js";
@@ -20,6 +27,8 @@ export interface IntrospectMeta {
   toolsListChanged?: boolean;
   /** Set when the server declares the `prompts` capability. */
   promptsListChanged?: boolean;
+  /** Set when the server declares the `resources` capability. */
+  resourcesListChanged?: boolean;
   /** Read defensively: the 2026-07-28 spec revision adds server-controlled result caching hints
    * to `tools/list`, but a server only sends them on a connection that negotiated that revision,
    * and the CLI uses the legacy handshake unless protocol selection opts in. */
@@ -35,12 +44,15 @@ export interface RawToolListResult {
   cacheScope?: string;
 }
 
-/** What `introspectTarget` read from a server: every tool, and every prompt when the server
- * declares the `prompts` capability (`undefined` when it does not, so a snapshot of such a
- * server has no `prompts` key at all). */
+/** What `introspectTarget` read from a server: every tool; every prompt when the server
+ * declares the `prompts` capability; and every static resource and resource template when it
+ * declares `resources` (`undefined` when it does not, so a snapshot of such a server has no
+ * key for them at all). */
 export interface IntrospectSource {
   tools: Tool[];
   prompts?: Prompt[];
+  resources?: Resource[];
+  resourceTemplates?: ResourceTemplate[];
 }
 
 /** Connect, page through tools/list (and prompts/list when offered) until nextCursor is
@@ -78,16 +90,44 @@ export async function introspectTarget(
         );
       }
     }
+    let resources: Resource[] | undefined;
+    let resourceTemplates: ResourceTemplate[] | undefined;
+    if (caps?.resources !== undefined) {
+      try {
+        resources = await withTimeoutWrapping(target, connected, () =>
+          listAllResources((params) => client.listResources(params, listOptions)),
+        );
+        resourceTemplates = await withTimeoutWrapping(target, connected, () =>
+          listAllResourceTemplates((params) => client.listResourceTemplates(params, listOptions)),
+        );
+      } catch (err) {
+        // Same policy as prompts: both keys are omitted together, so a partial read never
+        // masquerades as "this server has resources but no templates".
+        resources = undefined;
+        resourceTemplates = undefined;
+        console.error(
+          `mcp-tada: resources/list failed, snapshot will not include resources: ${(err as Error).message}`,
+        );
+      }
+    }
 
     const meta: IntrospectMeta = {};
     if (version?.name !== undefined) meta.serverName = version.name;
     if (version?.version !== undefined) meta.serverVersion = version.version;
     if (caps?.tools?.listChanged !== undefined) meta.toolsListChanged = caps.tools.listChanged;
     if (caps?.prompts !== undefined) meta.promptsListChanged = caps.prompts.listChanged ?? false;
+    if (caps?.resources !== undefined)
+      meta.resourcesListChanged = caps.resources.listChanged ?? false;
     if (lastRaw?.ttlMs !== undefined) meta.ttlMs = lastRaw.ttlMs;
     if (lastRaw?.cacheScope !== undefined) meta.cacheScope = lastRaw.cacheScope;
     if (connected.protocolVersion !== undefined) meta.protocolVersion = connected.protocolVersion;
-    return prompts !== undefined ? { tools, prompts, meta } : { tools, meta };
+    const source: IntrospectSource & { meta: IntrospectMeta } = { tools, meta };
+    if (prompts !== undefined) source.prompts = prompts;
+    if (resources !== undefined && resourceTemplates !== undefined) {
+      source.resources = resources;
+      source.resourceTemplates = resourceTemplates;
+    }
+    return source;
   } finally {
     // withTimeoutWrapping already closed the transport on a timeout; a second close is a no-op
     // in the happy path and best-effort (never fatal) if the transport is already gone.
@@ -138,24 +178,61 @@ export function toPromptSnapshot(prompt: Prompt): PromptSnapshot {
   };
 }
 
-/** Sort by name, keeping the last definition when a server lists a name twice. */
-function sortedByName<T extends { name: string }>(items: T[]): T[] {
-  const byName = new Map<string, T>();
-  for (const item of items) byName.set(item.name, item);
-  return [...byName.keys()].sort().map((name) => byName.get(name) as T);
+/** The snapshot entry for one static resource, keyed by URI: its `name` and, when the server
+ * sent one, its `mimeType`. Description and title live in the JSDoc block. */
+export function toResourceSnapshot(resource: Resource): ResourceSnapshot {
+  const entry: ResourceSnapshot = { name: resource.name };
+  if (resource.mimeType !== undefined) entry.mimeType = resource.mimeType;
+  return entry;
 }
 
-/** Build the sorted, name-keyed snapshot data: `tools` as `{ inputSchema, outputSchema?,
- * annotations? }`, and `prompts` as `{ arguments }` when the source has them. Accepts a bare
- * `Tool[]` for callers that only have tools. */
+/** The snapshot entry for one resource template, keyed by name: its `uriTemplate` and, when
+ * the server sent one, its `mimeType`. */
+export function toResourceTemplateSnapshot(template: ResourceTemplate): ResourceTemplateSnapshot {
+  const entry: ResourceTemplateSnapshot = { uriTemplate: template.uriTemplate };
+  if (template.mimeType !== undefined) entry.mimeType = template.mimeType;
+  return entry;
+}
+
+/** Sort by key, keeping the last definition when a server lists a key twice. */
+function sortedBy<T>(items: T[], key: (item: T) => string): T[] {
+  const byKey = new Map<string, T>();
+  for (const item of items) byKey.set(key(item), item);
+  return [...byKey.keys()].sort().map((k) => byKey.get(k) as T);
+}
+
+const byName = <T extends { name: string }>(item: T): string => item.name;
+const byUri = <T extends { uri: string }>(item: T): string => item.uri;
+
+/** Sort by name, keeping the last definition when a server lists a name twice. */
+function sortedByName<T extends { name: string }>(items: T[]): T[] {
+  return sortedBy(items, byName);
+}
+
+/** Build the sorted, keyed snapshot data: `tools` as `{ inputSchema, outputSchema?,
+ * annotations? }`, `prompts` as `{ arguments }`, `resources` (by URI) as `{ name, mimeType? }`,
+ * and `resourceTemplates` (by name) as `{ uriTemplate, mimeType? }`, each map only when the
+ * source has it. Accepts a bare `Tool[]` for callers that only have tools. */
 export function buildIntrospectionData(source: IntrospectSource | Tool[]): IntrospectionData {
-  const { tools, prompts } = Array.isArray(source) ? { tools: source } : source;
+  const { tools, prompts, resources, resourceTemplates } = Array.isArray(source)
+    ? { tools: source }
+    : source;
   const data: IntrospectionData = { tools: {} };
   for (const tool of sortedByName(tools)) data.tools[tool.name] = toToolSnapshot(tool);
   if (prompts !== undefined) {
     data.prompts = {};
     for (const prompt of sortedByName(prompts))
       data.prompts[prompt.name] = toPromptSnapshot(prompt);
+  }
+  if (resources !== undefined) {
+    data.resources = {};
+    for (const resource of sortedBy(resources, byUri))
+      data.resources[resource.uri] = toResourceSnapshot(resource);
+  }
+  if (resourceTemplates !== undefined) {
+    data.resourceTemplates = {};
+    for (const template of sortedByName(resourceTemplates))
+      data.resourceTemplates[template.name] = toResourceTemplateSnapshot(template);
   }
   return data;
 }
@@ -251,17 +328,29 @@ function promptDocLines(prompt: Prompt): string[] {
   return lines;
 }
 
-/** One `"name": {...}` member per item, each preceded by its JSDoc block when it has one. */
-function formatMembers<T extends { name: string }>(
+// A resource's or template's JSDoc: title, then description. `mimeType` is in the entry itself.
+function resourceDocLines(item: {
+  title?: string | undefined;
+  description?: string | undefined;
+}): string[] {
+  const lines: string[] = [];
+  if (item.title !== undefined) lines.push(item.title);
+  if (item.description !== undefined) lines.push(item.description);
+  return lines;
+}
+
+/** One `"key": {...}` member per item, each preceded by its JSDoc block when it has one. */
+function formatMembers<T>(
   items: T[],
   indent: string,
+  key: (item: T) => string,
   toEntry: (item: T) => unknown,
   toDoc: (item: T) => string[],
 ): string {
-  return sortedByName(items)
+  return sortedBy(items, key)
     .map((item) => {
       const doc = buildJsDoc(toDoc(item), indent);
-      const line = `${indent}${JSON.stringify(item.name)}: ${jsonReindented(toEntry(item), indent.length)}`;
+      const line = `${indent}${JSON.stringify(key(item))}: ${jsonReindented(toEntry(item), indent.length)}`;
       return doc ? `${doc}\n${line}` : line;
     })
     .join(",\n");
@@ -279,7 +368,9 @@ export function formatDts(
   meta: IntrospectMeta,
   opts: FormatDtsOptions = {},
 ): string {
-  const { tools, prompts } = Array.isArray(source) ? { tools: source } : source;
+  const { tools, prompts, resources, resourceTemplates } = Array.isArray(source)
+    ? { tools: source }
+    : source;
 
   // The type literal must stay strict JSON for `parseDtsSnapshot`. Prettier (and oxfmt) would
   // otherwise unquote every key, so the file opts out of formatting and linting up front.
@@ -293,6 +384,9 @@ export function formatDts(
   if (meta.promptsListChanged !== undefined) {
     header.push(`// capabilities.prompts.listChanged: ${meta.promptsListChanged}`);
   }
+  if (meta.resourcesListChanged !== undefined) {
+    header.push(`// capabilities.resources.listChanged: ${meta.resourcesListChanged}`);
+  }
   if (meta.ttlMs !== undefined) header.push(`// ttlMs: ${meta.ttlMs}`);
   if (meta.cacheScope !== undefined) header.push(`// cacheScope: ${meta.cacheScope}`);
 
@@ -305,13 +399,33 @@ export function formatDts(
     "/* prettier-ignore */",
     "export type introspection = {",
     '  "tools": {',
-    formatMembers(tools, indent, toToolSnapshot, toolDocLines),
+    formatMembers(tools, indent, byName, toToolSnapshot, toolDocLines),
   ];
   if (prompts !== undefined) {
     parts.push(
       "  },",
       '  "prompts": {',
-      formatMembers(prompts, indent, toPromptSnapshot, promptDocLines),
+      formatMembers(prompts, indent, byName, toPromptSnapshot, promptDocLines),
+    );
+  }
+  if (resources !== undefined) {
+    parts.push(
+      "  },",
+      '  "resources": {',
+      formatMembers(resources, indent, byUri, toResourceSnapshot, resourceDocLines),
+    );
+  }
+  if (resourceTemplates !== undefined) {
+    parts.push(
+      "  },",
+      '  "resourceTemplates": {',
+      formatMembers(
+        resourceTemplates,
+        indent,
+        byName,
+        toResourceTemplateSnapshot,
+        resourceDocLines,
+      ),
     );
   }
   parts.push("  }", "};");
@@ -322,8 +436,8 @@ export function formatDts(
   return parts.join("\n");
 }
 
-/** Emit the raw introspection data (the same `{ tools: {...}, prompts?: {...} }` shape as the
- * `.d.ts` literal) as plain JSON, useful for `check` and other tooling. */
+/** Emit the raw introspection data (the same `{ tools, prompts?, resources?, resourceTemplates? }`
+ * shape as the `.d.ts` literal) as plain JSON, useful for `check` and other tooling. */
 export function formatJson(source: IntrospectSource | Tool[]): string {
   return `${JSON.stringify(buildIntrospectionData(source), null, 2)}\n`;
 }

@@ -12,6 +12,7 @@ Point it at a running MCP server once, and every `callTool` in your codebase get
 - the tool's description and each argument's description on hover
 - the tool's annotations (`readOnlyHint`, `destructiveHint`, ...) at the type level, so you can hand an agent only the read-only tools
 - `getPrompt` with prompt names as a union and arguments typed from each prompt's argument list
+- `readResource` with the server's resource URIs completed, and `readResourceTemplate` with the parameters of each RFC 6570 template typed from its variables
 
 ## Quick start
 
@@ -57,12 +58,21 @@ const prompt = await fs.getPrompt("summarize", { path: "README.md" });
 //                                 ^ union of prompt names   ^ required args string, optional args string?
 ```
 
+Resources get it too when the server declares the `resources` capability: the snapshot records each static resource's URI and `mimeType`, and each resource template's `uriTemplate`. `readResource` completes the known URIs and types `contents[].mimeType` from the snapshot; `readResourceTemplate` types its `params` from the template's variables, expands the template, and reads the result.
+
+```ts
+const doc = await fs.readResource("file:///README.md");
+//                                 ^ completes to the snapshot's static URIs; any other string is allowed
+const page = await fs.readResourceTemplate("Repository file", { owner: "o", repo: "r", path: "src" });
+//                                          ^ union of template names   ^ from "repo://{owner}/{repo}/{+path}{?ref}"
+```
+
 The same two pieces power "code mode" agents: the snapshot is a TypeScript declaration an LLM can read, and `mcp.tools` is the API its generated program calls. See `examples/code-mode`.
 
 ## How it works
 
-1. `mcp-tada introspect` connects to the server, pages through `tools/list` (and `prompts/list` when the server offers prompts), and writes a `.d.ts` containing the tool and prompt maps as a strict JSON type literal, with each entry's title and description as a JSDoc block, and each tool's `annotations` when the server declares them. Nothing else is generated.
-2. `initMcpTada<introspection>()` returns a thin wrapper around the SDK `Client`, from either SDK v1 or v2. At runtime it forwards to `client.callTool`. Everything else is type-level.
+1. `mcp-tada introspect` connects to the server, pages through `tools/list` (plus `prompts/list`, `resources/list`, and `resources/templates/list` when the server offers those capabilities), and writes a `.d.ts` containing the tool, prompt, resource, and resource template maps as a strict JSON type literal, with each entry's title and description as a JSDoc block, and each tool's `annotations` when the server declares them. Nothing else is generated.
+2. `initMcpTada<introspection>()` returns a thin wrapper around the SDK `Client`, from either SDK v1 or v2. At runtime it forwards to `client.callTool`, `getPrompt`, and `readResource`; `readResourceTemplate` expands the template first (a small RFC 6570 expander of its own, so the library still imports nothing from either SDK). Everything else is type-level.
 3. A small purpose-built JSON Schema to TypeScript mapper turns each schema into a type on demand. It accepts draft-07 and 2020-12 vocabularies: objects with `required` and `additionalProperties`, arrays and `prefixItems` tuples, `enum`, `const`, `anyOf`, `oneOf`, `allOf`, `type` arrays, `nullable`, `patternProperties`, `if`/`then`/`else`, and `$ref` into `$defs` or `definitions`.
 
 Off-the-shelf type-level mappers were measured at over 12 million type instantiations on real server schemas. This one checks the same snapshot in about 25 thousand, so editor feedback stays instant.
@@ -105,7 +115,7 @@ Flags: `--stdio` or `--command` plus repeatable `--arg` and `--env KEY=VAL`; `--
 
 ### `mcp-tada check`
 
-Diffs a live server against a snapshot and exits 1 on any drift: added or removed tools, changed input schemas, changed or newly present output schemas, changed annotations, and added, removed, or re-argued prompts. Run it in CI. Accepts the same target flags as `introspect`, including `--timeout <ms>`.
+Diffs a live server against a snapshot and exits 1 on any drift: added or removed tools, changed input schemas, changed or newly present output schemas, changed annotations, added, removed, or re-argued prompts, and added, removed, or changed resources and resource templates. Run it in CI. Accepts the same target flags as `introspect`, including `--timeout <ms>`.
 
 ```sh
 mcp-tada check --stdio "npx -y @modelcontextprotocol/server-filesystem ." --against src/fs.introspection.d.ts
@@ -125,7 +135,7 @@ mcp-tada check: differences from src/fs.introspection.d.ts (1 breaking, 1 danger
     summarize: added tool
 ```
 
-Breaking means code written against the snapshot can stop working: a tool or prompt that went away, a newly required argument, an input schema that got stricter, an output schema that got looser. Direction matters, so the same edit is breaking on the way in and additive on the way out. Dangerous means the contract still holds but a tool withdrew a promise: it stopped being read-only, idempotent, non-destructive, or closed-world. Anything `check` cannot model counts as breaking rather than being waved through.
+Breaking means code written against the snapshot can stop working: a tool, prompt, resource, or template that went away, a newly required argument, an input schema that got stricter, an output schema that got looser, a template whose `uriTemplate` changed, or a resource whose recorded `mimeType` changed or disappeared. Direction matters, so the same edit is breaking on the way in and additive on the way out. Dangerous means the contract still holds but a tool withdrew a promise: it stopped being read-only, idempotent, non-destructive, or closed-world. Anything `check` cannot model counts as breaking rather than being waved through.
 
 `--fail-on <level>` sets the least severe difference that fails the build: `any` (the default), `dangerous`, or `breaking`. Milder drift is still printed. `dangerous` is the setting for a server you do not control and that ships new tools regularly.
 
@@ -162,7 +172,7 @@ Full reference in `docs/cli.md`.
 
 The MCP TypeScript SDK comes in two package families: v1 is the single `@modelcontextprotocol/sdk`, v2 is `@modelcontextprotocol/client`, `@modelcontextprotocol/server` and `@modelcontextprotocol/core`. mcp-tada draws the line at whatever constructs a client:
 
-- `initMcpTada<I>().typed(client)` accepts a `Client` from either SDK. The library imports nothing from either package: it types `client` as a small structural `ClientLike` (the five methods it forwards to) and ships its own copies of the wire types (`Tool`, `Prompt`, `ContentBlock`, `GetPromptResult`, `RequestOptions`), which both SDKs' types satisfy. The one runtime difference, v1's `callTool(params, resultSchema?, options?)` versus v2's `callTool(params, options?)`, is detected per client (only a v2 `Client` has `getProtocolEra`), so per-call `options` land in the right argument on both. `mcp.client` keeps the concrete type you passed in. One footgun to know when you spawn a stdio server yourself: both SDKs' `StdioClientTransport` hand the child a short allowlist of environment variables (`HOME`, `PATH`, and a few more) unless you pass `env`, so behind a proxy an `npx`-launched server can hang on its install with no error; the CLI passes the whole environment, and `env: { ...process.env }` does the same in your own code.
+- `initMcpTada<I>().typed(client)` accepts a `Client` from either SDK. The library imports nothing from either package: it types `client` as a small structural `ClientLike` (the eight methods it forwards to) and ships its own copies of the wire types (`Tool`, `Prompt`, `Resource`, `ResourceTemplate`, `ContentBlock`, `GetPromptResult`, `ReadResourceResult`, `RequestOptions`), which both SDKs' types satisfy. The one runtime difference, v1's `callTool(params, resultSchema?, options?)` versus v2's `callTool(params, options?)`, is detected per client (only a v2 `Client` has `getProtocolEra`), so per-call `options` land in the right argument on both. `mcp.client` keeps the concrete type you passed in. One footgun to know when you spawn a stdio server yourself: both SDKs' `StdioClientTransport` hand the child a short allowlist of environment variables (`HOME`, `PATH`, and a few more) unless you pass `env`, so behind a proxy an `npx`-launched server can hang on its install with no error; the CLI passes the whole environment, and `env: { ...process.env }` does the same in your own code.
 - The CLI (`introspect`, `check`, `doctor`) and the `mcp-tada/cli` entry construct their own client, so they need one SDK installed, and use whichever one is: v2 when both are present, v1 otherwise. Both packages are optional peer dependencies; the SDK is loaded lazily, so `--help` and `init` run with none, and `doctor` names both packages when neither is installed. `MCP_TADA_SDK=v1` or `v2` forces the choice, and any other value is an error rather than a silent fallback. One difference to know: v1's `Client` does not expose the negotiated protocol version on stdio, so a snapshot written through v1 has no `protocolVersion` header line for a stdio server (the tool and prompt data are identical, and `check` treats the two as equal).
 - `mcp-tada-server` is v2 only and peer-depends on `@modelcontextprotocol/server`.
 
@@ -177,15 +187,18 @@ For a client you construct yourself, opt in with `new Client(info, { versionNego
 
 ## API
 
-- `initMcpTada<I>()` returns `{ typed(client) }`. The typed client exposes `callTool(name, args?, options?)`, `tools`, `listTools()`, `getPrompt(name, args?, options?)`, `listPrompts()`, and the underlying `client`.
+- `initMcpTada<I>()` returns `{ typed(client) }`. The typed client exposes `callTool(name, args?, options?)`, `tools`, `listTools()`, `getPrompt(name, args?, options?)`, `listPrompts()`, `readResource(uri, options?)`, `readResourceTemplate(name, params?, options?)`, `listResources()`, `listResourceTemplates()`, and the underlying `client`.
 - `tools` has one method per tool: `mcp.tools.read_file(args?, options?)` is `mcp.callTool("read_file", args?, options?)` with identical types. Names that aren't identifiers use bracket access, `mcp.tools["get-library-docs"](...)`. Since tool names only exist at the type level, `tools` is a `Proxy`: `Object.keys(mcp.tools)` is empty, and `then`, `catch`, `finally`, `toJSON`, `constructor`, and `prototype` are never resolved as tools (a tool with such a name is still reachable through `callTool`). Use `listTools()` for runtime discovery.
 - `callTool`'s result is a union on `isError`: when `isError` is `false` or absent, `structuredContent` is typed from the tool's `outputSchema` (or `unknown` if it has none - the spec allows a server to send one anyway); when `isError` is `true`, `structuredContent` is optional/`unknown` and `content` is still present. Narrow on `result.isError` before reading `structuredContent`.
 - `listTools()` on both the typed client and the combined client pages through `nextCursor` and returns every tool, not just the first page. The raw single-page SDK call is still reachable as `client.listTools(...)` on the typed client's underlying `client`.
 - `ToolNames<I>`, `ToolArgs<I, N>`, `ToolOutput<I, N>`, `ToolResult<I, N>` for naming the derived types in your own signatures. `ToolOutput<I, N>` is the success-case `structuredContent` type.
 - `getPrompt(name, args?, options?)` is `prompts/get` with `name` narrowed to the snapshot's prompts and `args` typed from the prompt's argument list: required arguments as `string`, optional ones as `string | undefined`, closed to the declared names, and omissible when nothing is required. The result is `GetPromptResult`, mcp-tada's structural copy of the SDK type. `PromptNames<I>` and `PromptArgs<I, N>` name those types. A snapshot of a server without the `prompts` capability has no `prompts` key, so `getPrompt` has no valid name on it, and `listPrompts()` returns `[]` without a request when the connected server does not declare the capability.
 - `FromSchema<S, Root = S>` maps an `inputSchema`-shaped JSON Schema to its TS type; objects are closed to their declared `properties` unless `additionalProperties` says otherwise. `FromOutputSchema<S, Root = S>` maps an `outputSchema` the same way, except objects with no `additionalProperties` stay open (`& { [k: string]: unknown }`), since a server's structured output may legitimately include fields it didn't declare.
-- `Introspection` describes the snapshot shape: `{ tools: Record<string, { inputSchema: unknown; outputSchema?: unknown; annotations?: ToolAnnotations }>; prompts?: Record<string, { arguments: { name: string; required?: boolean }[] }> }`. Snapshots generated before annotations or prompts were recorded still satisfy it.
-- `ReadOnlyToolNames<I>` is the union of tools annotated `readOnlyHint: true`, and `NonDestructiveToolNames<I>` adds those annotated `destructiveHint: false`. Unannotated tools count as writable and destructive, matching the spec's defaults. `ToolAnnotationsOf<I, N>` is one tool's recorded annotations, and `PickTools<I, Names>` narrows a snapshot to a set of tools, keeping its prompts, so it is still an `Introspection`.
+- `readResource(uri, options?)` is `resources/read`. `uri` completes to the snapshot's static resource URIs but accepts any string, since a URI often arrives in a tool result or a resource link. For a known URI, each item of `result.contents` has its `mimeType` narrowed to the recorded literal; otherwise it stays `string`. Text and blob contents remain a union to narrow with `"text" in item`. `ResourceUris<I>` and `ResourceMimeType<I, U>` name those types.
+- `readResourceTemplate(name, params?, options?)` expands one of the snapshot's resource templates and reads it. `params` is typed from the template's RFC 6570 variables: one `string` per variable, `string | string[]` for an exploded `{list*}`, optional keys for query (`{?a,b}`) and continuation (`{&c}`) expressions, and omissible when every variable is optional. The template string comes from the live server's `resources/templates/list` (fetched once per typed client), since the snapshot is type-only; a name the server no longer lists throws. `ResourceTemplateNames<I>`, `ResourceTemplateParams<I, N>`, and `UriTemplateParams<"...">` name those types, and `expandUriTemplate(template, params)` is the expansion on its own.
+- `listResources()` and `listResourceTemplates()` page through every result, and return `[]` without a request when the connected server does not declare the `resources` capability.
+- `Introspection` describes the snapshot shape: `{ tools: Record<string, { inputSchema: unknown; outputSchema?: unknown; annotations?: ToolAnnotations }>; prompts?: Record<string, { arguments: { name: string; required?: boolean }[] }>; resources?: Record<string, { name: string; mimeType?: string }>; resourceTemplates?: Record<string, { uriTemplate: string; mimeType?: string }> }`. Snapshots generated before annotations, prompts, or resources were recorded still satisfy it.
+- `ReadOnlyToolNames<I>` is the union of tools annotated `readOnlyHint: true`, and `NonDestructiveToolNames<I>` adds those annotated `destructiveHint: false`. Unannotated tools count as writable and destructive, matching the spec's defaults. `ToolAnnotationsOf<I, N>` is one tool's recorded annotations, and `PickTools<I, Names>` narrows a snapshot to a set of tools, keeping its prompts and resources, so it is still an `Introspection`.
 - `readOnly(mcp)` is a view of a typed client that only knows the read-only tools: `callTool` and `tools` narrow to `ReadOnlyToolNames<I>`, and `listTools()` filters the live list on the same annotation, so it can go straight into an LLM's tool list. It forwards to the same underlying client, so it is a compile-time restriction plus a runtime filter on the list, not a sandbox.
 
 ```ts
@@ -194,7 +207,7 @@ await safe.callTool("read_file", { path: "README.md" }); // ok
 await safe.callTool("write_file", { path: "x", content: "" }); // compile error
 const tools = await safe.listTools(); // only tools with readOnlyHint: true
 ```
-- `combineMcpTada(clients, options?)` merges several typed clients into one, prefixing each tool and prompt name with its alias (default separator `"__"`) so same-named tools on different servers never collide. `getPrompt("gh__summarize", args)` and `listPrompts()` work the same way, and a server without the `prompts` capability contributes no prompt names. Throws at construction if an alias is empty or contains the separator, or if the separator is empty. Its `tools` nests each server's methods under its alias, so `combined.tools.gh.search(...)` needs no prefixed string.
+- `combineMcpTada(clients, options?)` merges several typed clients into one, prefixing each tool and prompt name with its alias (default separator `"__"`) so same-named tools on different servers never collide. `getPrompt("gh__summarize", args)` and `listPrompts()` work the same way, and a server without the `prompts` capability contributes no prompt names. Resources are not merged; reach them through `combined.servers.<alias>`. Throws at construction if an alias is empty or contains the separator, or if the separator is empty. Its `tools` nests each server's methods under its alias, so `combined.tools.gh.search(...)` needs no prefixed string.
 
 ```ts
 const fs = initMcpTada<FsIntrospection>().typed(fsClient);
@@ -212,7 +225,7 @@ combined.split("gh__search"); // -> { server: "gh", tool: "search" }
 
 ## Testing
 
-`mcp-tada/testing` exports `mockMcpTada<introspection>(handlers)`, a `TypedClient` backed by in-memory handlers instead of a server. Each handler's arguments are typed from the tool's `inputSchema`, and its return is either a full result or, for a tool with an `outputSchema`, the bare `structuredContent`, which the mock wraps the way an SDK server would. Both maps are partial: calling an unmocked tool throws, naming it, so a test only describes what it exercises. Every call is recorded on `calls` (and `promptCalls`), as a union on `name` so a comparison narrows `args`.
+`mcp-tada/testing` exports `mockMcpTada<introspection>(handlers)`, a `TypedClient` backed by in-memory handlers instead of a server. Each tool handler's arguments are typed from the tool's `inputSchema`, and its return is either a full result or, for a tool with an `outputSchema`, the bare `structuredContent`, which the mock wraps the way an SDK server would. `resources` handlers are keyed by URI (any URI, with the snapshot's known ones typed on `mimeType`) and `resourceTemplates` by name with typed `params`. Every map is partial: calling an unmocked tool, prompt, or resource throws, naming it, so a test only describes what it exercises. Every call is recorded on `calls` (and `promptCalls`, `resourceCalls`), as a union on `name` so a comparison narrows `args`.
 
 ```ts
 import { mockMcpTada } from "mcp-tada/testing";

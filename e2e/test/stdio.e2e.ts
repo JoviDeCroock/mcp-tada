@@ -95,6 +95,15 @@ describe("@modelcontextprotocol/server-memory", () => {
     expect(graph.structuredContent.entities.map((e) => e.name)).toEqual(["mcp-tada"]);
   });
 
+  it("reads the knowledge graph resource with the snapshot's mimeType", async () => {
+    const memory = initMcpTada<Memory>().typed(client);
+    const result = await memory.readResource("memory://knowledge-graph");
+    const item = result.contents[0];
+    expect(item?.mimeType).toBe("application/json");
+    expect(item && "text" in item && JSON.parse(item.text)).toHaveProperty("entities");
+    expect(await memory.listResourceTemplates()).toEqual([]);
+  });
+
   it("readOnly keeps exactly the three read tools", async () => {
     const memory = initMcpTada<Memory>().typed(client);
     const names = (await readOnly(memory).listTools()).map((t) => t.name).sort();

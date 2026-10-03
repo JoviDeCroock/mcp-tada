@@ -3,6 +3,7 @@
 // server: mcp-servers/everything@2.0.0
 // capabilities.tools.listChanged: true
 // capabilities.prompts.listChanged: true
+// capabilities.resources.listChanged: true
 
 /* prettier-ignore */
 export type introspection = {
@@ -10,6 +11,7 @@ export type introspection = {
     /**
      * Echo Tool
      * Echoes back the input string
+     * @param args.message Message to echo
      */
     "echo": {
       "inputSchema": {
@@ -35,6 +37,8 @@ export type introspection = {
     /**
      * Get Annotated Message Tool
      * Demonstrates how annotations can be used to provide metadata about content.
+     * @param args.messageType Type of message to demonstrate different annotation patterns
+     * @param args.includeImage Whether to include an example image
      */
     "get-annotated-message": {
       "inputSchema": {
@@ -87,6 +91,7 @@ export type introspection = {
     /**
      * Get Resource Links Tool
      * Returns up to ten resource links that reference different types of resources
+     * @param args.count Number of resource links to return (1-10)
      */
     "get-resource-links": {
       "inputSchema": {
@@ -112,6 +117,7 @@ export type introspection = {
     /**
      * Get Resource Reference Tool
      * Returns a resource reference that can be used by MCP clients
+     * @param args.resourceId ID of the text resource to fetch
      */
     "get-resource-reference": {
       "inputSchema": {
@@ -143,6 +149,7 @@ export type introspection = {
     /**
      * Get Structured Content Tool
      * Returns structured content along with an output schema for client data validation
+     * @param args.location Choose city
      */
     "get-structured-content": {
       "inputSchema": {
@@ -197,6 +204,8 @@ export type introspection = {
     /**
      * Get Sum Tool
      * Returns the sum of two numbers
+     * @param args.a First number
+     * @param args.b Second number
      */
     "get-sum": {
       "inputSchema": {
@@ -244,6 +253,9 @@ export type introspection = {
     /**
      * GZip File as Resource Tool
      * Compresses a single file using gzip compression. Depending upon the selected output type, returns either the compressed data as a gzipped resource or a resource link, allowing it to be downloaded in a subsequent request during the current session.
+     * @param args.name Name of the output file
+     * @param args.data URL or data URI of the file content to compress
+     * @param args.outputType How the resulting gzipped file should be returned. 'resourceLink' returns a link to a resource that can be read later, 'resource' returns a full resource object.
      */
     "gzip-file-as-resource": {
       "inputSchema": {
@@ -282,6 +294,8 @@ export type introspection = {
     /**
      * Simulate Research Query
      * Simulates a deep research operation that gathers, analyzes, and synthesizes information. Demonstrates MCP task-based operations with progress through multiple stages. If 'ambiguous' is true and client supports elicitation, sends an elicitation request for clarification.
+     * @param args.topic The research topic to investigate
+     * @param args.ambiguous Simulate an ambiguous query that requires clarification (triggers input_required status)
      */
     "simulate-research-query": {
       "inputSchema": {
@@ -346,6 +360,8 @@ export type introspection = {
     /**
      * Trigger Long Running Operation Tool
      * Demonstrates a long running operation with progress updates.
+     * @param args.duration Duration of the operation in seconds
+     * @param args.steps Number of steps in the operation
      */
     "trigger-long-running-operation": {
       "inputSchema": {
@@ -432,6 +448,73 @@ export type introspection = {
      */
     "simple-prompt": {
       "arguments": []
+    }
+  },
+  "resources": {
+    /**
+     * Static document file exposed from /docs: architecture.md
+     */
+    "demo://resource/static/document/architecture.md": {
+      "name": "architecture.md",
+      "mimeType": "text/markdown"
+    },
+    /**
+     * Static document file exposed from /docs: extension.md
+     */
+    "demo://resource/static/document/extension.md": {
+      "name": "extension.md",
+      "mimeType": "text/markdown"
+    },
+    /**
+     * Static document file exposed from /docs: features.md
+     */
+    "demo://resource/static/document/features.md": {
+      "name": "features.md",
+      "mimeType": "text/markdown"
+    },
+    /**
+     * Static document file exposed from /docs: how-it-works.md
+     */
+    "demo://resource/static/document/how-it-works.md": {
+      "name": "how-it-works.md",
+      "mimeType": "text/markdown"
+    },
+    /**
+     * Static document file exposed from /docs: instructions.md
+     */
+    "demo://resource/static/document/instructions.md": {
+      "name": "instructions.md",
+      "mimeType": "text/markdown"
+    },
+    /**
+     * Static document file exposed from /docs: startup.md
+     */
+    "demo://resource/static/document/startup.md": {
+      "name": "startup.md",
+      "mimeType": "text/markdown"
+    },
+    /**
+     * Static document file exposed from /docs: structure.md
+     */
+    "demo://resource/static/document/structure.md": {
+      "name": "structure.md",
+      "mimeType": "text/markdown"
+    }
+  },
+  "resourceTemplates": {
+    /**
+     * Binary (base64) dynamic resource fabricated from the {resourceId} variable, which must be an integer.
+     */
+    "Dynamic Blob Resource": {
+      "uriTemplate": "demo://resource/dynamic/blob/{resourceId}",
+      "mimeType": "application/octet-stream"
+    },
+    /**
+     * Plaintext dynamic resource fabricated from the {resourceId} variable, which must be an integer.
+     */
+    "Dynamic Text Resource": {
+      "uriTemplate": "demo://resource/dynamic/text/{resourceId}",
+      "mimeType": "text/plain"
     }
   }
 };

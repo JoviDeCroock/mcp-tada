@@ -77,9 +77,9 @@ The exit code is 1 when any check is `fail`, and 0 otherwise. Warnings never cha
 
 ## `mcp-tada introspect`
 
-Connects to an MCP server, pages through `tools/list` (and `prompts/list`, when the server
-declares the `prompts` capability) until `nextCursor` is exhausted, and writes a name-keyed
-`introspection.d.ts`:
+Connects to an MCP server, pages through `tools/list` (plus `prompts/list`, `resources/list`,
+and `resources/templates/list`, when the server declares the `prompts` and `resources`
+capabilities) until `nextCursor` is exhausted, and writes a keyed `introspection.d.ts`:
 
 ```
 /* eslint-disable */
@@ -104,6 +104,16 @@ export type introspection = {
       "arguments": [{ "name": "city", "required": true }, { "name": "state", "required": false }]
     },
     ...
+  },
+  "resources": {
+    /**
+     * Static document file exposed from /docs: architecture.md
+     */
+    "demo://resource/static/document/architecture.md": { "name": "architecture.md", "mimeType": "text/markdown" },
+    ...
+  },
+  "resourceTemplates": {
+    "Dynamic Text Resource": { "uriTemplate": "demo://resource/dynamic/text/{resourceId}", "mimeType": "text/plain" }
   }
 };
 ```
@@ -129,10 +139,21 @@ Each prompt records its argument names and `required` flags in the server's orde
 `title` and `description`, and each argument's description as a `@param` tag, go into the JSDoc
 block rather than the data, so a reworded description does not read as drift in `check`.
 
+The `resources` and `resourceTemplates` maps are present only when the server declares the
+`resources` capability, and always together (a failed `resources/list` or
+`resources/templates/list` omits both with a warning). Static resources are keyed by URI and
+record `name` and `mimeType`; templates are keyed by name and record `uriTemplate` and
+`mimeType`. `mimeType` is included only when the server sent one. `size`, `annotations`, and
+`icons` are not recorded. The `title` and `description` go into the JSDoc block. A server whose
+resource list reflects its content (every file under a directory) produces a snapshot that
+changes with the content; `check --fail-on dangerous` ignores added resources, and a snapshot of
+such a server is still useful for its templates.
+
 The header comment records the server's name and version (`client.getServerVersion()`), the
 negotiated protocol version (on every transport through SDK v2; through v1 only the streamable
 HTTP transport exposes it, so the line is omitted for stdio and SSE servers), the
-`tools.listChanged` capability, `prompts.listChanged` when the server offers prompts, and, when
+`tools.listChanged` capability, `prompts.listChanged` when the server offers prompts, `resources.listChanged` when it offers
+resources, and, when
 present in the raw `tools/list` result, `ttlMs` / `cacheScope`. Those last two are read
 defensively as unknown fields: the 2026-07-28 spec revision adds them as result caching hints,
 but a server only sends them on a connection that negotiated that revision, and the CLI still
@@ -187,7 +208,7 @@ mcp-tada introspect --stdio "node server.js" --timeout 5000
 Any other connection failure (unreachable host, refused connection, a command that fails to spawn)
 is reported as `connecting to "<target>" failed: <reason>`, with the underlying cause appended.
 
-`--timeout <ms>` applies to connecting and to each `tools/list` and `prompts/list` request, and defaults to
+`--timeout <ms>` applies to connecting and to each `tools/list`, `prompts/list`, and `resources/*` list request, and defaults to
 `30000`. On timeout, the transport is closed and the command exits 1 with a message naming the
 target (the `--url` or `--command`/`--stdio` value, or the config alias). A server's `timeoutMs`
 in the config file (see below) sets its default; `--timeout` on the command line overrides it for
@@ -199,7 +220,7 @@ every selected server.
   directory, or `introspection.json` with `--json`).
 - `--name <TypeName>` also exports `export type <TypeName> = introspection;`, useful when you
   introspect more than one server into the same project.
-- `--json` dumps the raw `{ tools: { "<name>": { inputSchema, outputSchema?, annotations? } }, prompts?: { "<name>": { arguments } } }` data as JSON
+- `--json` dumps the raw `{ tools: { "<name>": { inputSchema, outputSchema?, annotations? } }, prompts?: { "<name>": { arguments } }, resources?: { "<uri>": { name, mimeType? } }, resourceTemplates?: { "<name>": { uriTemplate, mimeType? } } }` data as JSON
   instead of a `.d.ts`. Pairing it with a `.d.ts` output path is rejected, as is a `.d.ts`
   snapshot aimed at a `.json` path, since either would leave a file its extension misdescribes. This is the same shape `check` reads back, so it is handy for other
   tooling that wants the data without parsing TypeScript.
@@ -234,22 +255,26 @@ mcp-tada check --command "node server.js" --against introspection.d.ts
 `introspect`.
 
 The report covers added and removed tools, tools whose `inputSchema`, `outputSchema` or
-`annotations` changed, and added, removed or re-argued prompts. A snapshot without a `prompts`
-key is diffed as having none, so a server that offers prompts shows them all as added until the
-snapshot is regenerated.
+`annotations` changed, added, removed or re-argued prompts, and added, removed or changed
+resources and resource templates. A snapshot without a `prompts` (or `resources`) key is diffed
+as having none, so a server that offers them shows them all as added until the snapshot is
+regenerated.
 
 Every difference gets a severity, and the report is grouped by it, worst first, with the reason
 under each entry:
 
-- **breaking**: code written against the snapshot can stop working. A removed tool or prompt, a
-  disappeared `outputSchema`, a newly required prompt argument, or a schema change that goes the
-  wrong way.
+- **breaking**: code written against the snapshot can stop working. A removed tool, prompt,
+  resource or template, a disappeared `outputSchema`, a newly required prompt argument, a schema
+  change that goes the wrong way, a template whose `uriTemplate` changed (its variables are the
+  typed `params`), or a resource or template whose recorded `mimeType` changed or disappeared
+  (`readResource` types `contents[].mimeType` from it).
 - **dangerous**: the contract still holds, but a behavioural guarantee was withdrawn. A tool
   whose `readOnlyHint` or `idempotentHint` was `true` and no longer is, or whose
   `destructiveHint` or `openWorldHint` was `false` and no longer is. Code that trusted the hint
   still compiles and runs, which is exactly the problem.
-- **additive**: everything else. A new tool or prompt, a new optional property, a reworded
-  `description`, a looser input schema.
+- **additive**: everything else. A new tool, prompt, resource or template, a new optional
+  property, a reworded `description`, a looser input schema, a resource that gained a `mimeType`
+  or changed its `name`.
 
 ```
 mcp-tada check: differences from src/introspection.d.ts (1 breaking, 1 dangerous, 2 additive)
@@ -381,12 +406,16 @@ if (!report.identical) throw new Error(text);
 `name`, `json`, and `verbose` options as the flags. `check(options)` re-introspects and returns
 `{ report, text }`, where `report` has `added`, `removed`, `inputChanged`, `outputAppeared`,
 `outputDisappeared`, `outputChanged`, `annotationsChanged`, `safetyWeakened`, `promptsAdded`,
-`promptsRemoved`, `promptsChanged`, and `identical`, plus `changes` and `severity`. `changes` is
+`promptsRemoved`, `promptsChanged`, `resourcesAdded`, `resourcesRemoved`, `resourcesChanged`,
+`resourceTemplatesAdded`, `resourceTemplatesRemoved`, `resourceTemplatesChanged`, and
+`identical`, plus `changes` and `severity`. `changes` is
 the same set of differences as one flat list, each `{ kind, subject, severity, summary, reasons }`
 with `severity` one of `"additive"`, `"dangerous"` or `"breaking"` and `kind` one of
 `"toolAdded"`, `"toolRemoved"`, `"inputSchema"`, `"outputSchemaAppeared"`,
 `"outputSchemaDisappeared"`, `"outputSchema"`, `"annotations"`, `"promptAdded"`,
-`"promptRemoved"` or `"promptArguments"`, ordered worst first. `report.severity` is the worst
+`"promptRemoved"`, `"promptArguments"`, `"resourceAdded"`, `"resourceRemoved"`,
+`"resourceChanged"`, `"resourceTemplateAdded"`, `"resourceTemplateRemoved"` or
+`"resourceTemplateChanged"`, ordered worst first. `report.severity` is the worst
 severity present (`"additive"` when the report is identical), which is what `--fail-on`
 compares against.
 
@@ -397,10 +426,10 @@ the target flags. Unlike the CLI, no default timeout is applied unless you set `
 
 The building blocks are exported too, for tooling that wants to compose its own flow:
 `connectClient` and `introspectTarget` (connect and list without writing anything; the result is
-`{ tools, prompts?, meta }`), `buildIntrospectionData`, `toToolSnapshot`, `toPromptSnapshot`,
+`{ tools, prompts?, resources?, resourceTemplates?, meta }`), `buildIntrospectionData`,
+`toToolSnapshot`, `toPromptSnapshot`, `toResourceSnapshot`, `toResourceTemplateSnapshot`,
 `collectWarnings`, `formatDts`, `formatJson`, and `writeIfChanged` on the introspect side
-(`buildIntrospectionData`, `formatDts` and `formatJson` take that `{ tools, prompts? }` source, or
-a bare `Tool[]`); `diffIntrospection` and `formatReport` on the check side; and
+(`buildIntrospectionData`, `formatDts` and `formatJson` take that source, or a bare `Tool[]`); `diffIntrospection` and `formatReport` on the check side; and
 `parseSnapshotText`, `parseDtsSnapshot`, and `detectFormat` for reading a snapshot back.
 `compareSchemas(before, after, "input" | "output")` is the classifier on its own, returning
 `{ path, severity, message }` per difference, for tooling that wants to diff two schemas without
