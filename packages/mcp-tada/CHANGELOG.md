@@ -1,5 +1,11 @@
 # mcp-tada
 
+## 0.5.0
+
+### Minor Changes
+
+- [#19](https://github.com/JoviDeCroock/mcp-tada/pull/19) [`ef8bdc9`](https://github.com/JoviDeCroock/mcp-tada/commit/ef8bdc9f1007d67846458caafb0c9780113b4b1c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Snapshots record a server's static resources and resource templates, and the typed client gains `readResource` (URIs completed, `contents[].mimeType` narrowed), `readResourceTemplate` (params typed from the template's RFC 6570 variables), `listResources`, and `listResourceTemplates`; `check` reports resource and template drift.
+
 ## 0.4.0
 
 ### Minor Changes
