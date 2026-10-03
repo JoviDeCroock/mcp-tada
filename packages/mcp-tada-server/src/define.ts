@@ -1,4 +1,8 @@
-import type { ContentBlock, ServerContext } from "@modelcontextprotocol/server";
+import type {
+  ContentBlock,
+  InputRequiredResult,
+  ServerContext,
+} from "@modelcontextprotocol/server";
 import type { FromSchema, ToolAnnotations } from "mcp-tada";
 
 export type { FromSchema } from "mcp-tada";
@@ -38,9 +42,11 @@ export type UnstructuredToolReturn = {
   [key: string]: unknown;
 };
 
-type HandlerReturn<OutputSchema> = OutputSchema extends undefined
-  ? UnstructuredToolReturn
-  : StructuredToolReturn<FromSchema<OutputSchema>>;
+type HandlerReturn<OutputSchema> =
+  | InputRequiredResult
+  | (OutputSchema extends undefined
+      ? UnstructuredToolReturn
+      : StructuredToolReturn<FromSchema<OutputSchema>>);
 
 export type ToolHandler<InputSchema, OutputSchema> = (
   args: FromSchema<InputSchema>,

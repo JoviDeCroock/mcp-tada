@@ -1,11 +1,13 @@
 import type {
   CallToolResult,
   ContentBlock,
+  InputRequiredResult,
   ListToolsResult,
   McpServer,
   Server,
   Tool,
 } from "@modelcontextprotocol/server";
+import { isInputRequiredResult } from "@modelcontextprotocol/server";
 import { isWrappedToolReturn, type AnyToolDefinition } from "./define.js";
 import { validate, type ValidationError } from "./validate.js";
 
@@ -72,58 +74,65 @@ export function registerTools<Tools extends Record<string, AnyToolDefinition>>(
     tools: Array.from(byName.values(), toWireTool),
   }));
 
-  lowLevel.setRequestHandler("tools/call", async (request, ctx): Promise<CallToolResult> => {
-    const tool = byName.get(request.params.name);
-    if (!tool) {
-      throw new Error(`Unknown tool: ${request.params.name}`);
-    }
-    const args = request.params.arguments ?? {};
-
-    const inputErrors = validate(tool.inputSchema, args);
-    if (inputErrors.length > 0) {
-      return errorResult(`Invalid input for tool "${tool.name}"`, inputErrors);
-    }
-
-    let result: any;
-    try {
-      result = await tool.handler(args, ctx);
-    } catch (err) {
-      return {
-        isError: true,
-        content: [{ type: "text", text: err instanceof Error ? err.message : String(err) }],
-      };
-    }
-
-    if (!tool.outputSchema) {
-      return result;
-    }
-
-    let structuredContent: unknown;
-    let content: ContentBlock[];
-    let isError: boolean | undefined;
-
-    if (isWrappedToolReturn(result)) {
-      structuredContent = result.structuredContent;
-      content = result.content ?? [textBlock(result.structuredContent)];
-      isError = result.isError;
-    } else {
-      structuredContent = result;
-      content = [textBlock(result)];
-    }
-
-    if (validateOutput && !isError) {
-      const outputErrors = validate(tool.outputSchema, structuredContent);
-      if (outputErrors.length > 0) {
-        return errorResult(`Invalid output from tool "${tool.name}"`, outputErrors);
+  lowLevel.setRequestHandler(
+    "tools/call",
+    async (request, ctx): Promise<CallToolResult | InputRequiredResult> => {
+      const tool = byName.get(request.params.name);
+      if (!tool) {
+        throw new Error(`Unknown tool: ${request.params.name}`);
       }
-    }
+      const args = request.params.arguments ?? {};
 
-    return {
-      structuredContent,
-      content,
-      ...(isError !== undefined ? { isError } : {}),
-    };
-  });
+      const inputErrors = validate(tool.inputSchema, args);
+      if (inputErrors.length > 0) {
+        return errorResult(`Invalid input for tool "${tool.name}"`, inputErrors);
+      }
+
+      let result: any;
+      try {
+        result = await tool.handler(args, ctx);
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: err instanceof Error ? err.message : String(err) }],
+        };
+      }
+
+      // An intermediate result belongs to the SDK multi-round-trip driver, not the
+      // tool output schema. The SDK validates its shape and negotiated protocol era.
+      if (isInputRequiredResult(result)) return result;
+
+      if (!tool.outputSchema) {
+        return result;
+      }
+
+      let structuredContent: unknown;
+      let content: ContentBlock[];
+      let isError: boolean | undefined;
+
+      if (isWrappedToolReturn(result)) {
+        structuredContent = result.structuredContent;
+        content = result.content ?? [textBlock(result.structuredContent)];
+        isError = result.isError;
+      } else {
+        structuredContent = result;
+        content = [textBlock(result)];
+      }
+
+      if (validateOutput && !isError) {
+        const outputErrors = validate(tool.outputSchema, structuredContent);
+        if (outputErrors.length > 0) {
+          return errorResult(`Invalid output from tool "${tool.name}"`, outputErrors);
+        }
+      }
+
+      return {
+        structuredContent,
+        content,
+        ...(isError !== undefined ? { isError } : {}),
+      };
+    },
+  );
 }
 
 function resolveLowLevelServer(server: Server | McpServer): Server {

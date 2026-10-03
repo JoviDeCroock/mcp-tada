@@ -1,5 +1,17 @@
 # mcp-tada
 
+## 0.4.0
+
+### Minor Changes
+
+- [#17](https://github.com/JoviDeCroock/mcp-tada/pull/17) [`a7bafc9`](https://github.com/JoviDeCroock/mcp-tada/commit/a7bafc9a480bc44df4d94b205535f3de03119d20) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `combineMcpTada` now merges prompts too: `getPrompt("gh__summarize", args)` and `listPrompts()` use the same alias prefix as tools.
+
+- [#17](https://github.com/JoviDeCroock/mcp-tada/pull/17) [`a7bafc9`](https://github.com/JoviDeCroock/mcp-tada/commit/a7bafc9a480bc44df4d94b205535f3de03119d20) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `mcp-tada init --skills` links the packaged agent skills into `.claude/skills` (or `--skills-dir`), and `installSkills` does the same from `mcp-tada/cli`.
+
+- [#17](https://github.com/JoviDeCroock/mcp-tada/pull/17) [`a7bafc9`](https://github.com/JoviDeCroock/mcp-tada/commit/a7bafc9a480bc44df4d94b205535f3de03119d20) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The type mapper handles `patternProperties` (one index signature over the union of the pattern schemas) and `if`/`then`/`else` (the union of the base schema with each branch applied).
+
+- [#21](https://github.com/JoviDeCroock/mcp-tada/pull/21) [`1394e22`](https://github.com/JoviDeCroock/mcp-tada/commit/1394e22f58d60b9ec0c708db824ad2c2d100499c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Support MCP SDK v2 alongside v1 in the typed client and CLI, with explicit protocol 2026-07-28 negotiation through `--protocol`.
+
 ## 0.3.0
 
 ### Minor Changes
