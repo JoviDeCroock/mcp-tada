@@ -1,5 +1,16 @@
 # mcp-tada-server
 
+## 0.3.0
+
+### Minor Changes
+
+- [#23](https://github.com/JoviDeCroock/mcp-tada/pull/23) [`9694853`](https://github.com/JoviDeCroock/mcp-tada/commit/969485396ddf4791a2253fab5e039803229561ef) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Allow tool handlers to return MCP input-required results so SDK clients can fulfill elicitation and retry before receiving typed output.
+
+### Patch Changes
+
+- Updated dependencies [[`ef8bdc9`](https://github.com/JoviDeCroock/mcp-tada/commit/ef8bdc9f1007d67846458caafb0c9780113b4b1c)]:
+  - mcp-tada@0.5.0
+
 ## 0.2.0
 
 ### Minor Changes
