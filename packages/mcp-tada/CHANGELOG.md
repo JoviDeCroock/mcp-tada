@@ -1,5 +1,11 @@
 # mcp-tada
 
+## 0.6.0
+
+### Minor Changes
+
+- [`8656e5f`](https://github.com/JoviDeCroock/mcp-tada/commit/8656e5fcbeb7bd0c1ed4b6a705289ff9f79d1a0f) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Default SDK v2 CLI connections to automatic modern discovery, accept composed input and union output schemas, expose snapshot cache metadata, and refresh resource templates through the SDK. Use `--protocol legacy` to retain handshake-only connections; SDK v1 keeps its legacy default.
+
 ## 0.5.0
 
 ### Minor Changes

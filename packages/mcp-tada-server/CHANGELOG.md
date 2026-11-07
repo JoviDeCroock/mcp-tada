@@ -1,5 +1,13 @@
 # mcp-tada-server
 
+## 0.3.1
+
+### Patch Changes
+
+- [`8656e5f`](https://github.com/JoviDeCroock/mcp-tada/commit/8656e5fcbeb7bd0c1ed4b6a705289ff9f79d1a0f) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Validate tool inputs and optional outputs against JSON Schema 2020-12 or explicit draft-07, rejecting invalid schemas and unresolved references without fetching them.
+- Updated dependencies [[`8656e5f`](https://github.com/JoviDeCroock/mcp-tada/commit/8656e5fcbeb7bd0c1ed4b6a705289ff9f79d1a0f)]:
+  - mcp-tada@0.6.0
+
 ## 0.3.0
 
 ### Minor Changes
