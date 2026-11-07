@@ -35,3 +35,14 @@ jobs:
 
       - name: Verify
         run: pnpm run verify --check
+
+  verify-status:
+    name: Verify
+    runs-on: ubuntu-latest
+    needs: verify
+    if: always()
+    steps:
+      - name: Require both SDK configurations
+        env:
+          RESULT: ${{ needs.verify.result }}
+        run: test "$RESULT" = success
