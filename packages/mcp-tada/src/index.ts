@@ -239,7 +239,7 @@ export type TypedClient<I extends Introspection, C extends ClientLike = ClientLi
   ): Promise<ResourceResult<I, U>>;
   /** Expands one of the snapshot's resource templates with `params` (typed from the template's
    * RFC 6570 variables) and reads the resulting URI. The template string is fetched from the
-   * live server once per typed client, since the snapshot only has it as a type. */
+   * live server through the SDK, since the snapshot only has it as a type. */
   readResourceTemplate<N extends ResourceTemplateNames<I>>(
     name: N,
     ...rest: ReadTemplateArgs<N, I>
@@ -345,20 +345,15 @@ export function initMcpTada<I extends Introspection>() {
         hasResources()
           ? listAllResourceTemplates(client.listResourceTemplates.bind(client))
           : Promise.resolve([]);
-      // The snapshot only records a template's string as a type, so the one to expand has to
-      // come from the server. Templates are listed once and cached by name for this wrapper.
-      let templatesByName: Promise<Map<string, string>> | undefined;
-      function templateFor(name: string): Promise<string> {
-        templatesByName ??= listResourceTemplates().then(
-          (templates) => new Map(templates.map((t) => [t.name, t.uriTemplate])),
-        );
-        return templatesByName.then((map) => {
-          const template = map.get(name);
-          if (template === undefined) {
-            throw new Error(`mcp-tada: the server lists no resource template named "${name}"`);
-          }
-          return template;
-        });
+      // Keep freshness and authorization scoping in the SDK's cache. A permanent wrapper
+      // cache would hide SDK invalidation and would also retain a rejected list forever.
+      async function templateFor(name: string): Promise<string> {
+        const templates = await listResourceTemplates();
+        const template = templates.find((t) => t.name === name);
+        if (template === undefined) {
+          throw new Error(`mcp-tada: the server lists no resource template named "${name}"`);
+        }
+        return template.uriTemplate;
       }
       async function readResource<U extends ResourceUris<I> | (string & {})>(
         uri: U,

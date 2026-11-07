@@ -123,12 +123,13 @@ export type ToolInputSchema = {
   type: "object";
   properties?: Record<string, unknown> | undefined;
   required?: string[] | undefined;
+  [key: string]: unknown;
 };
 
 /** A tool's `outputSchema`: an object schema up to the 2025-11-25 revision, any JSON Schema
  * since 2026-07-28 (SEP-2106), which is how SDK v2 types it. */
 export type ToolOutputSchema = {
-  type?: string | undefined;
+  type?: string | string[] | undefined;
   properties?: Record<string, unknown> | undefined;
   required?: string[] | undefined;
   [key: string]: unknown;
@@ -192,26 +193,31 @@ export type RequestOptions = {
 /** The minimal shape of a `tools/list` result page: a `Tool[]` plus an optional cursor for the
  * next page. Both SDKs' `ListToolsResult`, and mcp-tada's own `RawToolListResult`, structurally
  * satisfy this. */
-export interface ListToolsResultLike {
+export interface CacheHints {
+  ttlMs?: number | undefined;
+  cacheScope?: "public" | "private" | undefined;
+}
+
+export interface ListToolsResultLike extends CacheHints {
   tools: Tool[];
   nextCursor?: string | undefined;
 }
 
 /** The minimal shape of a `prompts/list` result page, the `prompts/list` twin of
  * `ListToolsResultLike`. */
-export interface ListPromptsResultLike {
+export interface ListPromptsResultLike extends CacheHints {
   prompts: Prompt[];
   nextCursor?: string | undefined;
 }
 
 /** The minimal shape of a `resources/list` result page. */
-export interface ListResourcesResultLike {
+export interface ListResourcesResultLike extends CacheHints {
   resources: Resource[];
   nextCursor?: string | undefined;
 }
 
 /** The minimal shape of a `resources/templates/list` result page. */
-export interface ListResourceTemplatesResultLike {
+export interface ListResourceTemplatesResultLike extends CacheHints {
   resourceTemplates: ResourceTemplate[];
   nextCursor?: string | undefined;
 }

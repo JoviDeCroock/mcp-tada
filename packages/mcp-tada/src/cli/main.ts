@@ -48,8 +48,8 @@ Target flags (one of):
                                   (or just [alias] if given as a positional argument)
   --timeout <ms>                 connect and tools/list timeout, default 30000 (overrides a
                                   server's "timeoutMs" in --config)
-  --protocol <mode>              "legacy" (default): use the 2025-era handshake; "auto": probe
-                                  for protocol 2026-07-28; a revision such as "2026-07-28":
+  --protocol <mode>              "auto" (SDK v2 default): probe; "legacy" (SDK v1 default): handshake
+                                  for protocol 2026-07-28 (probe capped at 1000ms); a revision:
                                   require exactly that (auto and pins require SDK v2)
                                   (overrides a server's "protocol" in --config)
 

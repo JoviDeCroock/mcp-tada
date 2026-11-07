@@ -4,15 +4,14 @@ Action items agreed on 2026-09-10. Each entry says what to build and the conditi
 
 ## Snapshot freshness from `ttlMs` and `cacheScope`
 
-The CLI supports both SDK families and defaults to the legacy handshake. With SDK v2,
-`--protocol auto` or `--protocol 2026-07-28` opts into the new revision; `introspect` records the
-negotiated version and `ttlMs` / `cacheScope` when present. The notes example serves both eras
-and generates its snapshot through modern negotiation.
+Shipped: SDK v2 defaults to modern auto negotiation, with a 1000ms discovery cap; SDK v1
+keeps its legacy default. Explicit protocol overrides remain available. Introspection records
+observed cache hints by list surface/page in the deterministic header, readable through
+`parseDtsSnapshotMeta`; the existing data parser and JSON snapshot format stay unchanged.
+Resource-template reads delegate caching to the SDK instead of keeping a permanent wrapper cache.
 
 Remaining freshness work:
 
-- Persist `ttlMs`, `cacheScope`, and the introspection timestamp in the snapshot header and expose them in `parseDtsSnapshot`.
-- Make `check` warn when a snapshot is older than its `ttlMs`, and refuse with a clear message when `cacheScope` says the list is per-user and the snapshot is being treated as shared.
 - Add `introspect --watch`: on 2026-07-28 connections, open `subscriptions/listen` with
   `toolsListChanged` / `promptsListChanged` filters for the advertised capabilities before
   relying on notifications. Use the SDK to handle legacy notification delivery, reconnect and
@@ -60,8 +59,9 @@ snapshot is type-only. Still open, in rough order of value:
 
 [SEP-2640](https://modelcontextprotocol.io/seps/2640-skills-extension) reached Final on
 2026-09-13. The [Skills extension](https://modelcontextprotocol.io/extensions/skills/overview)
-is optional; SDK and host support is still being implemented. It is not implemented by
-mcp-tada. The September 10 server survey predates finalization and is not evidence of current
+is optional; TypeScript SDK 2.4.0 (released 2026-10-23) ships `SkillsClient` and server helpers;
+`SkillsExtension.attach` is experimental. The SDK prerequisite has cleared, while host support
+still varies. Skills discovery is not implemented by mcp-tada. The September 10 server survey predates finalization and is not evidence of current
 adoption.
 
 The accepted design requires `resources` plus
@@ -74,7 +74,7 @@ The accepted design requires `resources` plus
 - `resources/read` for file contents and optional `resources/directory/read`, gated by the
   extension's `directoryRead` capability.
 
-Before adding support, verify the available SDK extension API and add a fixture from an
+Before adding support, exercise the SDK 2.4.0 extension API and add a fixture from an
 implementing server. Snapshot known skills by URI within each server, preserving frontmatter
 and manifest metadata as JSON. Names are labels and can collide; cross-server identity must
 retain both the server and URI. Keep direct URI retrieval available because a snapshot cannot
@@ -107,7 +107,7 @@ Shipped: `combineMcpTada` merges several typed clients into one, namespacing too
 ## Follow-ups from the 2026-09-10 hardening pass
 
 - `mcp-tada-server` handler return types still use input-mode `FromSchema` for `outputSchema`; switch to `FromOutputSchema` from `mcp-tada` so handler return types match what clients see.
-- The JSON Schema validator in `packages/mcp-tada-server/src/validate.ts` covers the mapper's subset. Lift it into `mcp-tada` behind a `validated(client)` entry point so clients can opt into checking `structuredContent` at runtime.
+- Server validation now uses Ajv for default 2020-12 and explicit draft-07, with local reference resolution, schema/value limits and no network fetching. Keep validator dependencies out of the zero-runtime client; any opt-in client validation belongs in a separate entry point.
 
 ## Release setup (one-time, manual)
 
@@ -117,3 +117,7 @@ Provenance-based publishing mirrors pracht. Before the first release on `main`:
 2. Both packages were published by hand at 0.0.0 on 2026-09-10, so the package pages exist.
 3. On npmjs.com, for each package, add a trusted publisher: repository `JoviDeCroock/mcp-tada`, workflow `release.yml`, environment `npm`.
 4. After that, `release.yml` stages every unpublished version with `pnpm stage publish --provenance` under OIDC and prints the stage ids; approve them with `npm stage approve <id>`.
+
+## Compatibility coverage
+
+CI verifies the locked SDK v2 2.4.0 / v1 1.32.2 dependencies and minimum supported v2 2.0.0 / v1 1.20.0. Transport metadata, HTTP parameter-header validation, completed-result decoding and multi-round-trip driving remain the SDK's responsibility.

@@ -7,6 +7,7 @@ import { introspect } from "../src/cli/introspect.js";
 import { runCheckWith, runDoctorWith, runIntrospectWith } from "../src/cli/main.js";
 import { SDK_ENV } from "../src/cli/sdk.js";
 import type { ProtocolMode, ServerTarget } from "../src/cli/connect.js";
+import { parseDtsSnapshotMeta } from "../src/cli/snapshot.js";
 
 const target: ServerTarget = {
   command: process.execPath,
@@ -22,8 +23,21 @@ afterEach(() => {
 });
 
 describe("protocol negotiation", () => {
+  it("falls back when a legacy stdio server ignores discovery", async () => {
+    vi.stubEnv(SDK_ENV, "v2");
+    const result = await introspect({
+      target: {
+        command: process.execPath,
+        args: [fileURLToPath(new URL("./fixtures/ignores-discover.mjs", import.meta.url))],
+        timeoutMs: 2000,
+      },
+      write: false,
+    });
+    expect(result.meta.protocolVersion).toBe("2025-11-25");
+    expect(result.data.tools).toEqual({});
+  });
   it.each<{ protocol?: ProtocolMode; version: string }>([
-    { version: "2025-11-25" },
+    { version: "2026-07-28" },
     { protocol: "legacy", version: "2025-11-25" },
     { protocol: "auto", version: "2026-07-28" },
     { protocol: "2026-07-28", version: "2026-07-28" },
@@ -41,6 +55,16 @@ describe("protocol negotiation", () => {
       expect(result.meta).toMatchObject({ ttlMs: 1234, cacheScope: "public" });
       expect(result.text).toContain("// ttlMs: 1234");
       expect(result.text).toContain("// cacheScope: public");
+      expect(result.meta.cacheHints).toMatchObject({
+        tools: [{ ttlMs: 1234, cacheScope: "public" }],
+        prompts: [{ ttlMs: 5678, cacheScope: "private" }],
+        resources: [{ ttlMs: 9000, cacheScope: "private" }],
+        resourceTemplates: [{ ttlMs: 10000, cacheScope: "public" }],
+      });
+      expect(parseDtsSnapshotMeta(result.text)).toMatchObject({
+        protocolVersion: version,
+        cacheHints: result.meta.cacheHints,
+      });
     }
   });
 

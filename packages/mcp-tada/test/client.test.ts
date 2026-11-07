@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { expandUriTemplate, initMcpTada, readOnly } from "../src/index.js";
 import type { introspection } from "./fixtures/everything.introspection.d.ts";
 import { connectEverything, sdks, serverAvailable, type SdkClient } from "./helpers.js";
@@ -74,7 +74,7 @@ describe.runIf(serverAvailable).each(sdks)("typed client (runtime, $label)", ({ 
     expect(result.contents[0]?.uri).toBe("demo://resource/dynamic/text/1");
     expect(result.contents[0]?.mimeType).toBe("text/plain");
 
-    // The template list is fetched once and cached per typed client.
+    // Freshness of the template list is delegated to the SDK.
     const blob = await mcp.readResourceTemplate("Dynamic Blob Resource", { resourceId: "2" });
     expect(blob.contents[0]?.uri).toBe("demo://resource/dynamic/blob/2");
     expect("blob" in blob.contents[0]!).toBe(true);
@@ -100,6 +100,31 @@ describe.runIf(serverAvailable).each(sdks)("typed client (runtime, $label)", ({ 
     expect(typeof result.structuredContent.temperature).toBe("number");
     expect(typeof result.structuredContent.conditions).toBe("string");
     expect(typeof result.structuredContent.humidity).toBe("number");
+  });
+});
+
+describe("resource template freshness", () => {
+  it("observes changed templates and recovers after a failed list", async () => {
+    type Snapshot = { tools: {}; resourceTemplates: { item: { uriTemplate: "old://{id}" } } };
+    const listResourceTemplates = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporarily unavailable"))
+      .mockResolvedValueOnce({ resourceTemplates: [{ name: "item", uriTemplate: "old://{id}" }] })
+      .mockResolvedValueOnce({ resourceTemplates: [{ name: "item", uriTemplate: "new://{id}" }] });
+    const readResource = vi.fn(async ({ uri }: { uri: string }) => ({
+      contents: [{ uri, text: "ok" }],
+    }));
+    const mcp = initMcpTada<Snapshot>().typed({
+      getServerCapabilities: () => ({ resources: {} }),
+      listResourceTemplates,
+      readResource,
+    } as never);
+    await expect(mcp.readResourceTemplate("item", { id: "1" })).rejects.toThrow(
+      "temporarily unavailable",
+    );
+    await mcp.readResourceTemplate("item", { id: "1" });
+    await mcp.readResourceTemplate("item", { id: "2" });
+    expect(readResource.mock.calls.map(([params]) => params.uri)).toEqual(["old://1", "new://2"]);
   });
 });
 

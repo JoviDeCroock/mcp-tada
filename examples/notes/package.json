@@ -12,11 +12,11 @@
     "start:v1": "pnpm build && node dist/client-v1.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/client": "^2.0.0",
-    "@modelcontextprotocol/server": "^2.0.0",
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@modelcontextprotocol/server": "^2.4.0",
     "mcp-tada": "workspace:*",
-    "mcp-tada-server": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.30.0"
+    "mcp-tada-server": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.5.0",

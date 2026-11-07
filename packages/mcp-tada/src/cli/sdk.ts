@@ -69,7 +69,11 @@ export interface StdioTransportOptions {
 /** One installed SDK behind a uniform surface. */
 export interface LoadedSdk {
   choice: SdkChoice;
-  createClient(info: { name: string; version: string }, protocol?: ProtocolMode): CliClient;
+  createClient(
+    info: { name: string; version: string },
+    protocol?: ProtocolMode,
+    timeoutMs?: number,
+  ): CliClient;
   stdioTransport(options: StdioTransportOptions): CliTransport;
   /** `headers`, when given, are sent on every request. */
   streamableHttpTransport(url: URL, headers: Record<string, string> | undefined): CliTransport;
@@ -137,8 +141,8 @@ async function loadV2(): Promise<LoadedSdk> {
   ]);
   return {
     choice: "v2",
-    createClient: (info, protocol) =>
-      new sdk.Client(info, { versionNegotiation: versionNegotiationFor(protocol) }),
+    createClient: (info, protocol, timeoutMs) =>
+      new sdk.Client(info, { versionNegotiation: versionNegotiationFor(protocol, timeoutMs) }),
     stdioTransport: (options) => rememberPid(new stdio.StdioClientTransport(options)),
     streamableHttpTransport: (url, headers) =>
       new sdk.StreamableHTTPClientTransport(url, httpOptions(headers)),
@@ -163,7 +167,7 @@ async function loadV1(): Promise<LoadedSdk> {
   return {
     choice: "v1",
     createClient: (info, protocol) => {
-      if (versionNegotiationFor(protocol).mode !== "legacy") {
+      if (versionNegotiationFor(protocol ?? "legacy").mode !== "legacy") {
         throw new Error(
           "mcp-tada: --protocol auto or a pinned revision requires @modelcontextprotocol/client (SDK v2); use --protocol legacy with SDK v1",
         );

@@ -69,6 +69,34 @@ async function connectModern<T extends Record<string, AnyToolDefinition>>(tools:
 }
 
 describe("modern tool results", () => {
+  it("enforces schema constraints before calling a handler and validates completed output", async () => {
+    const handler = vi.fn(() => -1);
+    const tools = defineTools([
+      defineTool({
+        name: "bounded",
+        inputSchema: {
+          type: "object",
+          properties: { count: { type: "integer", minimum: 1 } },
+          required: ["count"],
+        },
+        outputSchema: { type: "number", minimum: 0 },
+        handler,
+      }),
+    ]);
+    const { client } = await connectModern(tools);
+    try {
+      expect((await client.callTool({ name: "bounded", arguments: { count: -1 } })).isError).toBe(
+        true,
+      );
+      expect(handler).not.toHaveBeenCalled();
+      expect((await client.callTool({ name: "bounded", arguments: { count: 1 } })).isError).toBe(
+        true,
+      );
+      expect(handler).toHaveBeenCalledOnce();
+    } finally {
+      await client.close();
+    }
+  });
   it("lets the SDK fulfill elicitation and retry a typed tool with output validation enabled", async () => {
     const rounds: unknown[] = [];
     const tool = defineTool({

@@ -2,6 +2,55 @@
 // `.d.ts` mcp-tada emits (a JSON type literal with JSDoc comments above tool and prompt keys) or from
 // the `--json` dump. The emitter in introspect.ts is written to keep the `.d.ts` literal
 // strict, quoted-key JSON, so this is a straightforward strip-comments-then-JSON.parse.
+import type { IntrospectMeta } from "./introspect.js";
+
+export type SnapshotMeta = Pick<
+  IntrospectMeta,
+  "protocolVersion" | "ttlMs" | "cacheScope" | "cacheHints"
+>;
+
+/** Read protocol/cache metadata independently of the stable introspection data contract.
+ * Older snapshots have no hints. No capture timestamp is inserted into deterministic files.
+ */
+export function parseDtsSnapshotMeta(text: string): SnapshotMeta {
+  const marker = text.indexOf("export type introspection");
+  if (marker === -1) throw new Error('Could not find "export type introspection" in snapshot file');
+  const header = text.slice(0, marker);
+  const field = (name: string) =>
+    header
+      .split("\n")
+      .find((line) => line.startsWith(`// ${name}: `))
+      ?.slice(name.length + 5);
+  const meta: SnapshotMeta = {};
+  const protocol = field("protocolVersion");
+  const ttl = field("ttlMs");
+  const scope = field("cacheScope");
+  const hints = field("cacheHints");
+  if (protocol !== undefined) meta.protocolVersion = protocol;
+  if (ttl !== undefined && Number.isFinite(Number(ttl))) meta.ttlMs = Number(ttl);
+  if (scope !== undefined) meta.cacheScope = scope;
+  if (hints !== undefined) {
+    const parsed: unknown = JSON.parse(hints);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+      throw new Error("Invalid snapshot cacheHints");
+    for (const pages of Object.values(parsed)) {
+      if (
+        !Array.isArray(pages) ||
+        pages.some(
+          (p) =>
+            typeof p !== "object" ||
+            p === null ||
+            Array.isArray(p) ||
+            (p.ttlMs !== undefined && (typeof p.ttlMs !== "number" || !Number.isFinite(p.ttlMs))) ||
+            (p.cacheScope !== undefined && p.cacheScope !== "public" && p.cacheScope !== "private"),
+        )
+      )
+        throw new Error("Invalid snapshot cacheHints");
+    }
+    meta.cacheHints = parsed as NonNullable<SnapshotMeta["cacheHints"]>;
+  }
+  return meta;
+}
 
 /** The behavioural hints a server may attach to a tool (`Tool["annotations"]` in the SDK). */
 export interface ToolAnnotationsSnapshot {

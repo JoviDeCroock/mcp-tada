@@ -88,10 +88,19 @@ telling you tools must be registered first.
 ## Validation and error semantics
 
 `registerTools` always validates incoming `arguments` against a tool's `inputSchema` before
-invoking its handler, using a small built-in JSON Schema validator (see `src/validate.ts`) that
-covers the same subset `mcp-tada`'s type-level mapper supports. On a mismatch, the handler is never
-called: the result carries `isError: true` and a text content block listing the errors, per the
-MCP spec's "invalid input" execution error, rather than a thrown protocol error.
+invoking its handler, using Ajv with JSON Schema 2020-12 by default or explicit draft-07.
+Numeric/string constraints, conditionals, dependencies, pattern properties, composition and
+local references follow the declared dialect. A schema with `properties` but no `type` only
+constrains objects; specify `type: "object"` to reject primitives. `format` remains an annotation.
+Unknown extension keywords are ignored. Unsupported dialects, invalid schemas, unresolved
+references and asynchronous schemas return validation errors. References are never fetched.
+Validation does not coerce values, apply defaults or remove properties.
+
+Schemas are limited to 64 levels, 4096 JSON nodes and 256000 serialized bytes; values to 64
+levels and 100000 nodes. Compiled validators are cached for up to 128 schema contents, so
+changing a schema does not reuse an old validator. Exceeded limits return validation errors.
+On a mismatch the handler is never called: the result carries `isError: true` and a text block
+listing the errors, per MCP's invalid-input execution error rather than a protocol error.
 
 A handler that throws is caught the same way: the result carries `isError: true` and the error's
 message as a text block, not a JSON-RPC protocol error. The one case that remains a protocol-level

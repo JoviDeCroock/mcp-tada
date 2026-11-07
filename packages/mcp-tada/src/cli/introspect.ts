@@ -9,7 +9,7 @@ import {
   listAllResources,
   listAllTools,
 } from "../list.js";
-import type { Prompt, Resource, ResourceTemplate, Tool } from "../wire.js";
+import type { CacheHints, Prompt, Resource, ResourceTemplate, Tool } from "../wire.js";
 import { connectClient, withTimeoutWrapping, type ServerTarget } from "./connect.js";
 import type {
   IntrospectionData,
@@ -29,19 +29,19 @@ export interface IntrospectMeta {
   promptsListChanged?: boolean;
   /** Set when the server declares the `resources` capability. */
   resourcesListChanged?: boolean;
-  /** Read defensively: the 2026-07-28 spec revision adds server-controlled result caching hints
-   * to `tools/list`, but a server only sends them on a connection that negotiated that revision,
-   * and the CLI uses the legacy handshake unless protocol selection opts in. */
+  /** Conservative summary of the tools/list hints; absent on legacy results without hints. */
   ttlMs?: number;
   /** Same caveat as ttlMs above. */
   cacheScope?: string;
+  /** Observed list-result cache hints, grouped by surface. SDK v2 may aggregate pages. */
+  cacheHints?: Partial<
+    Record<"tools" | "prompts" | "resources" | "resourceTemplates", CacheHints[]>
+  >;
 }
 
-export interface RawToolListResult {
+export interface RawToolListResult extends CacheHints {
   tools?: unknown;
   nextCursor?: string;
-  ttlMs?: number;
-  cacheScope?: string;
 }
 
 /** What `introspectTarget` read from a server: every tool; every prompt when the server
@@ -65,22 +65,26 @@ export async function introspectTarget(
   try {
     const caps = client.getServerCapabilities();
     const version = client.getServerVersion();
-    let lastRaw: RawToolListResult | undefined;
+    const cacheHints: NonNullable<IntrospectMeta["cacheHints"]> = {};
+    const observe = (surface: keyof typeof cacheHints) => (page: CacheHints) => {
+      (cacheHints[surface] ??= []).push({
+        ...(page.ttlMs !== undefined ? { ttlMs: page.ttlMs } : {}),
+        ...(page.cacheScope !== undefined ? { cacheScope: page.cacheScope } : {}),
+      });
+    };
     const listOptions = target.timeoutMs !== undefined ? { timeout: target.timeoutMs } : undefined;
     const tools = await withTimeoutWrapping(target, connected, () =>
       listAllTools<RawToolListResult & { tools: Tool[] }>(
         (params) =>
           client.listTools(params, listOptions) as Promise<RawToolListResult & { tools: Tool[] }>,
-        (page) => {
-          lastRaw = page;
-        },
+        observe("tools"),
       ),
     );
     let prompts: Prompt[] | undefined;
     if (caps?.prompts !== undefined) {
       try {
         prompts = await withTimeoutWrapping(target, connected, () =>
-          listAllPrompts((params) => client.listPrompts(params, listOptions)),
+          listAllPrompts((params) => client.listPrompts(params, listOptions), observe("prompts")),
         );
       } catch (err) {
         // A server that advertises prompts but cannot list them should not take the tool
@@ -95,10 +99,16 @@ export async function introspectTarget(
     if (caps?.resources !== undefined) {
       try {
         resources = await withTimeoutWrapping(target, connected, () =>
-          listAllResources((params) => client.listResources(params, listOptions)),
+          listAllResources(
+            (params) => client.listResources(params, listOptions),
+            observe("resources"),
+          ),
         );
         resourceTemplates = await withTimeoutWrapping(target, connected, () =>
-          listAllResourceTemplates((params) => client.listResourceTemplates(params, listOptions)),
+          listAllResourceTemplates(
+            (params) => client.listResourceTemplates(params, listOptions),
+            observe("resourceTemplates"),
+          ),
         );
       } catch (err) {
         // Same policy as prompts: both keys are omitted together, so a partial read never
@@ -118,8 +128,16 @@ export async function introspectTarget(
     if (caps?.prompts !== undefined) meta.promptsListChanged = caps.prompts.listChanged ?? false;
     if (caps?.resources !== undefined)
       meta.resourcesListChanged = caps.resources.listChanged ?? false;
-    if (lastRaw?.ttlMs !== undefined) meta.ttlMs = lastRaw.ttlMs;
-    if (lastRaw?.cacheScope !== undefined) meta.cacheScope = lastRaw.cacheScope;
+    for (const surface of Object.keys(cacheHints) as (keyof typeof cacheHints)[]) {
+      if (cacheHints[surface]?.every((page) => Object.keys(page).length === 0))
+        delete cacheHints[surface];
+    }
+    if (Object.keys(cacheHints).length > 0) meta.cacheHints = cacheHints;
+    const toolPages = cacheHints.tools ?? [];
+    const ttls = toolPages.map((p) => Math.max(0, p.ttlMs ?? 0));
+    if (ttls.length > 0) meta.ttlMs = Math.min(...ttls);
+    if (toolPages.length > 0)
+      meta.cacheScope = toolPages.every((p) => p.cacheScope === "public") ? "public" : "private";
     if (connected.protocolVersion !== undefined) meta.protocolVersion = connected.protocolVersion;
     const source: IntrospectSource & { meta: IntrospectMeta } = { tools, meta };
     if (prompts !== undefined) source.prompts = prompts;
@@ -389,6 +407,8 @@ export function formatDts(
   }
   if (meta.ttlMs !== undefined) header.push(`// ttlMs: ${meta.ttlMs}`);
   if (meta.cacheScope !== undefined) header.push(`// cacheScope: ${meta.cacheScope}`);
+  if (meta.cacheHints !== undefined)
+    header.push(`// cacheHints: ${JSON.stringify(meta.cacheHints)}`);
 
   const indent = "    "; // member keys sit 4 spaces in (introspection = { tools: { <here> } })
   const exportName = opts.name;

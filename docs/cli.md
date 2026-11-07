@@ -153,11 +153,14 @@ The header comment records the server's name and version (`client.getServerVersi
 negotiated protocol version (on every transport through SDK v2; through v1 only the streamable
 HTTP transport exposes it, so the line is omitted for stdio and SSE servers), the
 `tools.listChanged` capability, `prompts.listChanged` when the server offers prompts, `resources.listChanged` when it offers
-resources, and, when
-present in the raw `tools/list` result, `ttlMs` / `cacheScope`. Those last two are read
-defensively as unknown fields: the 2026-07-28 spec revision adds them as result caching hints,
-but a server only sends them on a connection that negotiated that revision, and the CLI still
-uses the legacy handshake by default; opt into modern negotiation with `--protocol auto`. The lines are omitted when absent.
+resources, and observed cache hints from tools, prompts, resources and resource-template lists.
+`cacheHints` groups hints by surface and observed page; SDK v2 may aggregate pages before
+returning them. The older `ttlMs` and `cacheScope` header fields summarize tools only, using
+the minimum observed TTL and private scope if any page is private. Missing hints are omitted.
+`parseDtsSnapshotMeta(text)` reads protocol and cache metadata separately;
+`parseDtsSnapshot(text)` continues to return only the introspection maps. JSON snapshots keep
+the same data-only format. TTL is not a guarantee that a committed type snapshot remains valid,
+and its age alone does not fail `check`. No capture timestamp is added to deterministic files.
 
 ### Target flags
 
@@ -186,17 +189,16 @@ mcp-tada introspect --url https://example.com/mcp --header "Authorization: Beare
 
 ### Protocol revision
 
-`--protocol legacy` (the default) uses the 2025-era handshake without a discovery probe.
-With SDK v2 installed, `--protocol auto` negotiates 2026-07-28 when offered and falls back to
-legacy otherwise; `--protocol 2026-07-28` requires that revision. A legacy stdio server that
-ignores discovery can delay `auto` until the probe times out, so opt in explicitly.
-SDK v1 rejects `auto` and pinned revisions with an instruction to install SDK v2.
+With SDK v2, `--protocol auto` is the default: it negotiates 2026-07-28 when offered and falls
+back to legacy otherwise. A discovery probe is capped at 1000ms or the shorter request timeout,
+with no retries; a legacy stdio server that ignores discovery falls back after that probe.
+`--protocol legacy` skips discovery and uses the 2025-era handshake; `--protocol 2026-07-28`
+requires that revision. SDK v1 defaults to legacy and rejects explicit `auto` or pinned revisions.
 
-`introspect`, `check`, and `doctor` accept this flag. Set `"protocol": "auto"` on a config
-server entry for a persistent choice; the flag overrides that setting. Programmatic callers
-use `ServerTarget.protocol` or `DoctorOptions.protocol`, with the same legacy default.
-Modern connections record the negotiated protocol and cache hints in the snapshot header
-without changing the tool and prompt maps.
+`introspect`, `check`, and `doctor` accept this flag. A server's `"protocol"` config field sets
+its mode; the flag overrides that setting. Programmatic callers use `ServerTarget.protocol` or
+`DoctorOptions.protocol`, with the same SDK-dependent default. Modern connections record the
+negotiated protocol and cache hints in the snapshot header without changing the tool and prompt maps.
 
 ### Timeout
 

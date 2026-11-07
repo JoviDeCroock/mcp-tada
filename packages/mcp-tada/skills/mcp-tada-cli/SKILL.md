@@ -56,4 +56,4 @@ The subpath exposes what the CLI runs minus argv parsing: `init`, `installSkills
 no default timeout is applied unless `timeoutMs` is set. Exit codes are yours to decide.
 `report.changes` is the flat list of differences, each with `severity` and `reasons`, worst first.
 
-`introspect`, `check`, and `doctor` accept `--protocol legacy` (default), `--protocol auto`, or a pinned revision such as `--protocol 2026-07-28`. Auto and pins require SDK v2. The flag overrides each server's `protocol` config field.
+`introspect`, `check`, and `doctor` accept `--protocol legacy`, `--protocol auto` (SDK v2 default), or a pinned revision such as `--protocol 2026-07-28`. SDK v1 defaults to legacy. Auto and pins require SDK v2; discovery probes are capped at 1000ms or the shorter request timeout. The flag overrides each server's `protocol` config field.

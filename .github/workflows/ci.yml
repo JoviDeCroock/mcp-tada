@@ -7,8 +7,12 @@ on:
 
 jobs:
   verify:
-    name: Verify
+    name: Verify (${{ matrix.sdk }} SDK)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [current, minimum]
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -24,6 +28,10 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Install minimum supported SDKs
+        if: matrix.sdk == 'minimum'
+        run: pnpm -r update @modelcontextprotocol/client@2.0.0 @modelcontextprotocol/server@2.0.0 @modelcontextprotocol/sdk@1.20.0
 
       - name: Verify
         run: pnpm run verify --check

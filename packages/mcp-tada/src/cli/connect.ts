@@ -15,7 +15,7 @@ export const DEFAULT_TIMEOUT_MS = 30_000;
 
 /** Where to reach a single MCP server: stdio (command/args/env) or HTTP (url/headers). */
 export interface ServerTarget {
-  /** Legacy by default; auto or a pinned revision requires SDK v2. */
+  /** Defaults to auto with SDK v2, legacy with SDK v1. Explicit auto requires SDK v2. */
   protocol?: ProtocolMode;
   command?: string;
   args?: string[];
@@ -154,6 +154,13 @@ async function closeStdioHard(stdio: CliTransport): Promise<void> {
   }
 }
 
+function errorCause(error: Error): unknown {
+  if (error.cause !== undefined) return error.cause;
+  // SDK v2.0 stored probe causes in `data`; newer releases also use Error.cause.
+  const data = (error as { data?: unknown }).data;
+  return typeof data === "object" && data !== null && "cause" in data ? data.cause : undefined;
+}
+
 /** Wraps a connect/list failure so it names the target: a timeout reads as such, and any other
  * failure (a bare `fetch failed`, a spawn error) carries the target and the underlying cause. */
 function wrapConnectError(err: unknown, target: ServerTarget, sdk: LoadedSdk): unknown {
@@ -162,8 +169,16 @@ function wrapConnectError(err: unknown, target: ServerTarget, sdk: LoadedSdk): u
     return new Error(`mcp-tada: connecting to "${describeTarget(target)}" timed out after ${ms}ms`);
   }
   const message = err instanceof Error ? err.message : String(err);
-  const cause = err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined;
-  const detail = cause && !message.includes(cause) ? `${message} (${cause})` : message;
+  const causes: string[] = [];
+  const seen = new Set<Error>();
+  let cause = err instanceof Error ? errorCause(err) : undefined;
+  while (cause instanceof Error && !seen.has(cause)) {
+    seen.add(cause);
+    if (!message.includes(cause.message) && !causes.includes(cause.message))
+      causes.push(cause.message);
+    cause = errorCause(cause);
+  }
+  const detail = causes.length > 0 ? `${message} (${causes.join("; ")})` : message;
   return new Error(`mcp-tada: connecting to "${describeTarget(target)}" failed: ${detail}`, {
     cause: err,
   });
@@ -183,6 +198,7 @@ export async function connectClient(
       version: opts.clientVersion ?? "0.0.0",
     },
     target.protocol,
+    target.timeoutMs,
   );
   const requestOptions = target.timeoutMs !== undefined ? { timeout: target.timeoutMs } : undefined;
   const connected = (transport: CliTransport, kind: ConnectedClient["kind"]): ConnectedClient => ({

@@ -20,6 +20,20 @@ import type {
   ToolAnnotations,
 } from "../src/index.js";
 
+test("wire tools accept composition keywords and union output types", () => {
+  const tool: Tool = {
+    name: "find",
+    inputSchema: {
+      type: "object",
+      oneOf: [{ required: ["id"] }, { required: ["name"] }],
+      $defs: { id: { type: "string" } },
+      additionalProperties: false,
+    },
+    outputSchema: { type: ["string", "null"] },
+  };
+  expectTypeOf(tool).toMatchTypeOf<Tool>();
+});
+
 describe("SDK v2 (@modelcontextprotocol/client) fits the wire types", () => {
   test("Client satisfies ClientLike", () => {
     expectTypeOf<V2.Client>().toMatchTypeOf<ClientLike>();

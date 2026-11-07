@@ -3,15 +3,42 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerTarget } from "../src/cli/connect.js";
-import { introspect } from "../src/cli/introspect.js";
+import { introspect, formatDts } from "../src/cli/introspect.js";
 import { check } from "../src/cli/check.js";
-import { parseDtsSnapshot, parseSnapshotText, detectFormat } from "../src/cli/snapshot.js";
+import {
+  parseDtsSnapshot,
+  parseDtsSnapshotMeta,
+  parseSnapshotText,
+  detectFormat,
+} from "../src/cli/snapshot.js";
 import { runCheckWith, runIntrospectWith } from "../src/cli/main.js";
 import { SDK_ENV } from "../src/cli/sdk.js";
 
 const EVERYTHING_SERVER = "node_modules/@modelcontextprotocol/server-everything/dist/index.js";
 
 const target: ServerTarget = { command: "node", args: [EVERYTHING_SERVER] };
+
+it("round-trips per-surface and per-page cache hints without changing snapshot data", () => {
+  const meta = {
+    protocolVersion: "2026-07-28",
+    ttlMs: 5,
+    cacheScope: "private",
+    cacheHints: {
+      tools: [
+        { ttlMs: 5, cacheScope: "private" as const },
+        { ttlMs: 20, cacheScope: "private" as const },
+      ],
+      resources: [{ ttlMs: 0, cacheScope: "public" as const }],
+    },
+  };
+  const text = formatDts([], meta);
+  expect(parseDtsSnapshotMeta(text)).toEqual(meta);
+  expect(parseDtsSnapshot(text)).toEqual({ tools: {} });
+  expect(parseDtsSnapshotMeta(formatDts([], {}))).toEqual({});
+  expect(() => parseDtsSnapshotMeta(text.replace('"ttlMs":5', '"ttlMs":"bad"'))).toThrow(
+    /cacheHints/,
+  );
+});
 
 function tmpFile(name: string): string {
   const dir = mkdtempSync(join(tmpdir(), "mcp-tada-cli-test-"));
@@ -439,7 +466,7 @@ describe("--timeout", () => {
       timeoutMs: 10_000,
     };
     await expect(introspect({ target, write: false })).rejects.toThrow(
-      /connecting to "https:\/\/this-domain-does-not-exist-mcp-tada\.invalid\/mcp" failed: fetch failed \(/,
+      /connecting to "https:\/\/this-domain-does-not-exist-mcp-tada\.invalid\/mcp" failed: .*fetch failed \(/,
     );
   }, 20_000);
 

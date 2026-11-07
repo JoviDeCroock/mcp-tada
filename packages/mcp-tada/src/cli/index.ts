@@ -87,6 +87,7 @@ export {
 export {
   detectFormat,
   parseDtsSnapshot,
+  parseDtsSnapshotMeta,
   parseSnapshotText,
   type IntrospectionData,
   type PromptArgumentSnapshot,
@@ -94,6 +95,7 @@ export {
   type ResourceSnapshot,
   type ResourceTemplateSnapshot,
   type SnapshotFormat,
+  type SnapshotMeta,
   type ToolAnnotationsSnapshot,
   type ToolSnapshot,
 } from "./snapshot.js";

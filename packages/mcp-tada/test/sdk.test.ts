@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { detectSdk, loadSdk, SDK_ENV, SDKS } from "../src/cli/sdk.js";
+import { versionNegotiationFor } from "../src/cli/protocol.js";
+
+it("bounds modern discovery by both the probe cap and the requested timeout", () => {
+  expect(versionNegotiationFor()).toEqual({
+    mode: "auto",
+    probe: { timeoutMs: 1000, maxRetries: 0 },
+  });
+  expect(versionNegotiationFor("auto", 50).probe?.timeoutMs).toBe(50);
+  expect(versionNegotiationFor("legacy")).toEqual({ mode: "legacy" });
+});
 
 // Both SDKs are installed in this workspace, so the loader can be steered explicitly; the
 // "neither installed" rejection is exercised end to end in the packed-tarball dogfood, since it

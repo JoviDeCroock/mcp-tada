@@ -121,6 +121,6 @@ from CI, with credentials in the runner's environment.
   `readResourceTemplate` none on a snapshot without `resources`. `readResource` always accepts a
   string; only the `mimeType` narrowing needs the snapshot.
 - `readResourceTemplate` throws when the live server no longer lists the template by that name:
-  the snapshot has the template string as a type only, so the runtime asks the server for it once.
+  the snapshot has the template string as a type only, so each template read asks the SDK for the current template list. SDK v2 controls caching and freshness.
 - Script `introspect` / `check` from `mcp-tada/cli`, not `mcp-tada`. The main entry has no
   `node:fs` or transport imports on purpose.
